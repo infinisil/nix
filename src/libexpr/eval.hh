@@ -333,9 +333,9 @@ private:
     typedef std::map<Pos, size_t> AttrSelects;
     AttrSelects attrSelects;
 
-    friend struct ExprOpUpdate;
     friend struct ExprOpConcatLists;
     friend struct ExprSelect;
+    friend void opUpdate(EvalState & state, Value & v1, Value & v2, Value & v);
     friend void prim_getAttr(EvalState & state, const Pos & pos, Value * * args, Value & v);
     friend void prim_match(EvalState & state, const Pos & pos, Value * * args, Value & v);
 };

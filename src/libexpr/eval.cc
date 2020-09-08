@@ -1444,12 +1444,7 @@ void ExprOpImpl::eval(EvalState & state, Env & env, Value & v)
     mkBool(v, !state.evalBool(env, e1, pos) || state.evalBool(env, e2, pos));
 }
 
-
-void ExprOpUpdate::eval(EvalState & state, Env & env, Value & v)
-{
-    Value v1, v2;
-    state.evalAttrs(env, e1, v1);
-    state.evalAttrs(env, e2, v2);
+void opUpdate(EvalState & state, Value & v1, Value & v2, Value & v) {
 
     state.nrOpUpdates++;
 
@@ -1478,6 +1473,15 @@ void ExprOpUpdate::eval(EvalState & state, Env & env, Value & v)
     while (j != v2.attrs->end()) v.attrs->push_back(*j++);
 
     state.nrOpUpdateValuesCopied += v.attrs->size();
+}
+
+void ExprOpUpdate::eval(EvalState & state, Env & env, Value & v)
+{
+    Value v1, v2;
+    state.evalAttrs(env, e1, v1);
+    state.evalAttrs(env, e2, v2);
+
+    opUpdate(state, v1, v2, v);
 }
 
 
