@@ -72,7 +72,7 @@ public:
 
     const Symbol sWith, sOutPath, sDrvPath, sType, sMeta, sName, sValue,
         sSystem, sOverrides, sOutputs, sOutputName, sIgnoreNulls,
-        sFile, sLine, sColumn, sFunctor, sToString,
+        sFile, sLine, sColumn, sFunctor, sFunctionArgs, sToString,
         sRight, sWrong, sStructuredAttrs, sBuilder, sArgs,
         sContentAddressed,
         sOutputHash, sOutputHashAlgo, sOutputHashMode,
