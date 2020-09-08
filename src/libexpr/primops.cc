@@ -2248,6 +2248,56 @@ static RegisterPrimOp primop_functionArgs({
     .fun = prim_functionArgs,
 });
 
+static void prim_callFunctionDefaultArgs(EvalState & state, const Pos & pos, Value * * args, Value & v)
+{
+    // TODO: Also allow functors, use builtins.functionArgs to get args
+    state.forceFunction(*args[0], pos);
+    state.forceAttrs(*args[1], pos);
+    state.forceAttrs(*args[2], pos);
+
+    auto funArgs = state.allocValue();
+    state.mkAttrs(*funArgs, args[0]->lambda.fun->formals->formals.size());
+    for (auto & i : args[0]->lambda.fun->formals->formals) {
+
+        auto attr = args[2]->attrs->find(i.name);
+        if (attr != args[2]->attrs->end()) {
+            // If the args contains the argument, we don't need to add it since we will // args later
+            continue;
+        }
+
+        auto attr2 = args[1]->attrs->find(i.name);
+        if (attr2 != args[1]->attrs->end()) {
+            // If the autoArgs contains the argument, push it
+            funArgs->attrs->push_back(Attr(i.name, attr2->value, &i.pos));
+        } else if (! i.def) {
+            // If we can't find the argument neither in args or autoArgs, and the function requires it, throw an error
+            // TODO: Use levenshtein distance to figure out whether the user
+            // made a typo by looking through all args and autoArgs suggest what the user might have meant
+            throw Error({
+                .hint = hintfmt("Unknown argument '%s'", i.name),
+                .errPos = i.pos
+            });
+        }
+    }
+    funArgs->attrs->sort();
+
+    auto finalArgs = state.allocValue();
+    opUpdate(state, *funArgs, *args[2], *finalArgs);
+
+    state.callFunction(*args[0], *finalArgs, v, pos);
+}
+
+
+static RegisterPrimOp primop_callFunctionDefaultArgs({
+    .name = "__callFunctionDefaultArgs",
+    .args = {"f", "autoArgs", "args"},
+    .doc = R"(
+      Call the function *f* with *args*, but also get missing arguments from *autoArgs*.
+      This is equivalent to `f (builtins.intersectAttrs (builtins.functionArgs f) autoArgs // args)`
+    )",
+    .fun = prim_callFunctionDefaultArgs,
+});
+
 /*  */
 static void prim_mapAttrs(EvalState & state, const Pos & pos, Value * * args, Value & v)
 {
