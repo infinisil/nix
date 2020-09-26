@@ -82,6 +82,8 @@ struct Expr
     virtual void eval(EvalState & state, Env & env, Value & v);
     virtual Value * maybeThunk(EvalState & state, Env & env);
     virtual void setName(Symbol & name);
+    virtual bool hasAttr(EvalState & state, Env & env, const AttrPath & attrPath);
+    virtual bool select(EvalState & state, Env & env, const AttrPath & attrPath, Expr * def, const Pos & pos, bool required, Value & v);
 };
 
 std::ostream & operator << (std::ostream & str, const Expr & e);
@@ -311,8 +313,29 @@ MakeBinOp(ExprOpNEq, "!=")
 MakeBinOp(ExprOpAnd, "&&")
 MakeBinOp(ExprOpOr, "||")
 MakeBinOp(ExprOpImpl, "->")
-MakeBinOp(ExprOpUpdate, "//")
+//MakeBinOp(ExprOpUpdate, "//")
 MakeBinOp(ExprOpConcatLists, "++")
+
+
+struct ExprOpUpdate : Expr
+{
+    Pos pos;
+    Expr * e1, * e2;
+    ExprOpUpdate(Expr * e1, Expr * e2) : e1(e1), e2(e2) { };
+    ExprOpUpdate(const Pos & pos, Expr * e1, Expr * e2) : pos(pos), e1(e1), e2(e2) { };
+    void show(std::ostream & str) const
+    {
+        str << "(" << *e1 << " " "//" " " << *e2 << ")";
+    }
+    void bindVars(const StaticEnv & env)
+    {
+        e1->bindVars(env); e2->bindVars(env);
+    }
+    void eval(EvalState & state, Env & env, Value & v);
+
+    bool hasAttr(EvalState & state, Env & env, const AttrPath & attrPath);
+    bool select(EvalState & state, Env & env, const AttrPath & attrPath, Expr * def, const Pos & pos, bool required, Value & v);
+};
 
 struct ExprConcatStrings : Expr
 {

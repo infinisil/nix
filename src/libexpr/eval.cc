@@ -1105,13 +1105,13 @@ static string showAttrPath(EvalState & state, Env & env, const AttrPath & attrPa
 
 unsigned long nrLookups = 0;
 
-void ExprSelect::eval(EvalState & state, Env & env, Value & v)
+bool Expr::select(EvalState & state, Env & env, const AttrPath & attrPath, Expr * def, const Pos & pos, bool required, Value & v)
 {
     Value vTmp;
     Pos * pos2 = 0;
     Value * vAttrs = &vTmp;
 
-    e->eval(state, env, vTmp);
+    this->eval(state, env, vTmp);
 
     try {
 
@@ -1125,19 +1125,24 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
                     (j = vAttrs->attrs->find(name)) == vAttrs->attrs->end())
                 {
                     def->eval(state, env, v);
-                    return;
+                    return true;
                 }
             } else {
                 state.forceAttrs(*vAttrs, pos);
-                if ((j = vAttrs->attrs->find(name)) == vAttrs->attrs->end())
-                    throwEvalError(pos, "attribute '%1%' missing", name);
+                if ((j = vAttrs->attrs->find(name)) == vAttrs->attrs->end()) {
+                    if (required) {
+                        throwEvalError(pos, "attribute '%1%' missing", name);
+                    } else {
+                        return false;
+                    }
+                }
             }
             vAttrs = j->value;
             pos2 = j->pos;
             if (state.countCalls && pos2) state.attrSelects[*pos2]++;
         }
 
-        state.forceValue(*vAttrs, ( pos2 != NULL ? *pos2 : this->pos ) );
+        state.forceValue(*vAttrs, ( pos2 != NULL ? *pos2 : pos ) );
 
     } catch (Error & e) {
         if (pos2 && pos2->file != state.sDerivationNix)
@@ -1147,15 +1152,20 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
     }
 
     v = *vAttrs;
+    return true;
 }
 
+void ExprSelect::eval(EvalState & state, Env & env, Value & v)
+{
+    e->select(state, env, attrPath, def, pos, true, v);
+}
 
-void ExprOpHasAttr::eval(EvalState & state, Env & env, Value & v)
+bool Expr::hasAttr(EvalState & state, Env & env, const AttrPath & attrPath)
 {
     Value vTmp;
     Value * vAttrs = &vTmp;
 
-    e->eval(state, env, vTmp);
+    this->eval(state, env, vTmp);
 
     for (auto & i : attrPath) {
         state.forceValue(*vAttrs);
@@ -1164,16 +1174,19 @@ void ExprOpHasAttr::eval(EvalState & state, Env & env, Value & v)
         if (vAttrs->type != tAttrs ||
             (j = vAttrs->attrs->find(name)) == vAttrs->attrs->end())
         {
-            mkBool(v, false);
-            return;
+            return false;
         } else {
             vAttrs = j->value;
         }
     }
 
-    mkBool(v, true);
+    return true;
 }
 
+void ExprOpHasAttr::eval(EvalState & state, Env & env, Value & v)
+{
+    mkBool(v, e->hasAttr(state, env, attrPath));
+}
 
 void ExprLambda::eval(EvalState & state, Env & env, Value & v)
 {
@@ -1450,8 +1463,20 @@ void ExprOpImpl::eval(EvalState & state, Env & env, Value & v)
 }
 
 
+bool ExprOpUpdate::hasAttr(EvalState & state, Env & env, const AttrPath & attrPath)
+{
+    return e2->hasAttr(state, env, attrPath) || e1->hasAttr(state, env, attrPath);
+}
+
+
+bool ExprOpUpdate::select(EvalState & state, Env & env, const AttrPath & attrPath, Expr * def, const Pos & pos, bool required, Value & v)
+{
+    return e2->select(state, env, attrPath, def, pos, false, v) || e1->select(state, env, attrPath, def, pos, required, v);
+}
+
 void ExprOpUpdate::eval(EvalState & state, Env & env, Value & v)
 {
+
     Value v1, v2;
     state.evalAttrs(env, e1, v1);
     state.evalAttrs(env, e2, v2);
