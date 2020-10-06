@@ -339,7 +339,7 @@ private:
 
     friend struct ExprOpUpdate;
     friend struct ExprOpConcatLists;
-    friend bool Expr::select(EvalState & state, Env & env, const AttrPath & attrPath, Expr * def, const Pos & pos, bool required, Value & v);
+    friend bool mySelect(EvalState & state, Env & env, const AttrPath & attrPath, Expr * def, const Pos & pos, bool required, Value & v1, Value & v);
     friend void prim_getAttr(EvalState & state, const Pos & pos, Value * * args, Value & v);
     friend void prim_match(EvalState & state, const Pos & pos, Value * * args, Value & v);
 };

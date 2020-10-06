@@ -1105,13 +1105,12 @@ static string showAttrPath(EvalState & state, Env & env, const AttrPath & attrPa
 
 unsigned long nrLookups = 0;
 
-bool Expr::select(EvalState & state, Env & env, const AttrPath & attrPath, Expr * def, const Pos & pos, bool required, Value & v)
+bool mySelect(EvalState & state, Env & env, const AttrPath & attrPath, Expr * def, const Pos & pos, bool required, Value & v1, Value & v)
 {
-    Value vTmp;
-    Pos * pos2 = 0;
-    Value * vAttrs = &vTmp;
 
-    this->eval(state, env, vTmp);
+    //Value vTmp;
+    Pos * pos2 = 0;
+    Value * vAttrs = &v1;
 
     try {
 
@@ -1153,6 +1152,14 @@ bool Expr::select(EvalState & state, Env & env, const AttrPath & attrPath, Expr 
 
     v = *vAttrs;
     return true;
+}
+
+bool Expr::select(EvalState & state, Env & env, const AttrPath & attrPath, Expr * def, const Pos & pos, bool required, Value & v)
+{
+    Value v2;
+    Value * v3 = &v2;
+    this->eval(state, env, *v3);
+    return mySelect(state, env, attrPath, def, pos, required, *v3, v);
 }
 
 void ExprSelect::eval(EvalState & state, Env & env, Value & v)
