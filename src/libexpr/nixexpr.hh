@@ -80,6 +80,7 @@ struct Expr
     virtual void show(std::ostream & str) const;
     virtual void bindVars(const StaticEnv & env);
     virtual void eval(EvalState & state, Env & env, Value & v);
+    virtual bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v);
     virtual Value * maybeThunk(EvalState & state, Env & env);
     virtual void setName(Symbol & name);
 };
@@ -156,6 +157,8 @@ struct ExprVar : Expr
     ExprVar(const Pos & pos, const Symbol & name) : pos(pos), name(name) { };
     COMMON_METHODS
     Value * maybeThunk(EvalState & state, Env & env);
+
+    bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v);
 };
 
 struct ExprSelect : Expr
@@ -253,6 +256,7 @@ struct ExprLet : Expr
     Expr * body;
     ExprLet(ExprAttrs * attrs, Expr * body) : attrs(attrs), body(body) { };
     COMMON_METHODS
+    bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v);
 };
 
 struct ExprWith : Expr
@@ -305,14 +309,51 @@ struct ExprOpNot : Expr
         void eval(EvalState & state, Env & env, Value & v); \
     };
 
-MakeBinOp(ExprApp, "")
+//MakeBinOp(ExprApp, "")
 MakeBinOp(ExprOpEq, "==")
 MakeBinOp(ExprOpNEq, "!=")
 MakeBinOp(ExprOpAnd, "&&")
 MakeBinOp(ExprOpOr, "||")
 MakeBinOp(ExprOpImpl, "->")
-MakeBinOp(ExprOpUpdate, "//")
+//MakeBinOp(ExprOpUpdate, "//")
 MakeBinOp(ExprOpConcatLists, "++")
+
+struct ExprApp : Expr
+{
+    Pos pos;
+    Expr * e1, * e2;
+    ExprApp(Expr * e1, Expr * e2) : e1(e1), e2(e2) { };
+    ExprApp(const Pos & pos, Expr * e1, Expr * e2) : pos(pos), e1(e1), e2(e2) { };
+    void show(std::ostream & str) const
+    {
+        str << "(" << *e1 << " " "" " " << *e2 << ")";
+    }
+    void bindVars(const StaticEnv & env)
+    {
+        e1->bindVars(env); e2->bindVars(env);
+    }
+    void eval(EvalState & state, Env & env, Value & v);
+    bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v);
+};
+
+
+struct ExprOpUpdate : Expr
+{
+    Pos pos;
+    Expr * e1, * e2;
+    ExprOpUpdate(Expr * e1, Expr * e2) : e1(e1), e2(e2) { };
+    ExprOpUpdate(const Pos & pos, Expr * e1, Expr * e2) : pos(pos), e1(e1), e2(e2) { };
+    void show(std::ostream & str) const
+    {
+        str << "(" << *e1 << " " "//" " " << *e2 << ")";
+    }
+    void bindVars(const StaticEnv & env)
+    {
+        e1->bindVars(env); e2->bindVars(env);
+    }
+    void eval(EvalState & state, Env & env, Value & v);
+    bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v);
+};
 
 struct ExprConcatStrings : Expr
 {

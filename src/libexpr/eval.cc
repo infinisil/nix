@@ -946,6 +946,13 @@ void Expr::eval(EvalState & state, Env & env, Value & v)
     abort();
 }
 
+bool Expr::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v)
+{
+    //printError(format("Expr::evalAttr called for %s.%s") % *this % name);
+    this->eval(state, env, v);
+    return evalValueAttr(state, name, v);
+}
+
 
 void ExprInt::eval(EvalState & state, Env & env, Value & v)
 {
@@ -1069,6 +1076,23 @@ void ExprLet::eval(EvalState & state, Env & env, Value & v)
     body->eval(state, env2, v);
 }
 
+bool ExprLet::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v)
+{
+    /* Create a new environment that contains the attributes in this
+       `let'. */
+    Env & env2(state.allocEnv(attrs->attrs.size()));
+    env2.up = &env;
+
+    /* The recursive attributes are evaluated in the new environment,
+       while the inherited attributes are evaluated in the original
+       environment. */
+    size_t displ = 0;
+    for (auto & i : attrs->attrs)
+        env2.values[displ++] = i.second.e->maybeThunk(state, i.second.inherited ? env : env2);
+
+    return body->evalAttr(state, env2, name, v);
+}
+
 
 void ExprList::eval(EvalState & state, Env & env, Value & v)
 {
@@ -1083,6 +1107,13 @@ void ExprVar::eval(EvalState & state, Env & env, Value & v)
     Value * v2 = state.lookupVar(&env, *this, false);
     state.forceValue(*v2, pos);
     v = *v2;
+}
+
+bool ExprVar::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v)
+{
+    Value * v2 = state.lookupVar(&env, *this, false);
+    v = *v2;
+    return evalValueAttr(state, name, v);
 }
 
 
@@ -1105,38 +1136,61 @@ static string showAttrPath(EvalState & state, Env & env, const AttrPath & attrPa
 
 unsigned long nrLookups = 0;
 
+bool evalValueAttr(EvalState & state, const Symbol & name, Value & v) {
+    //printError(format("evalValueAttr called for %s.%s") % v % name);
+    if (v.type == tThunk) {
+        Env * env = v.thunk.env;
+        Expr * expr = v.thunk.expr;
+        return expr->evalAttr(state, *env, name, v);
+    }
+
+    state.forceValue(v, Pos());
+    if (v.type != tAttrs)
+        return false;
+
+    Bindings::iterator j;
+    if ((j = v.attrs->find(name)) == v.attrs->end())
+        return false;
+
+    v = *j->value;
+    return true;
+}
+
 void ExprSelect::eval(EvalState & state, Env & env, Value & v)
 {
+    //printError(format("ExprSelect::eval called for %s.%s") % *e % showAttrPath(state, env, attrPath));
     Value vTmp;
     Pos * pos2 = 0;
     Value * vAttrs = &vTmp;
 
-    e->eval(state, env, vTmp);
+    mkThunk(vTmp, env, e);
 
     try {
 
         for (auto & i : attrPath) {
             nrLookups++;
-            Bindings::iterator j;
+            //Bindings::iterator j;
             Symbol name = getName(i, state, env);
-            if (def) {
-                state.forceValue(*vAttrs, pos);
-                if (vAttrs->type != tAttrs ||
-                    (j = vAttrs->attrs->find(name)) == vAttrs->attrs->end())
-                {
+            bool hasIt = evalValueAttr(state, name, *vAttrs);
+            //printError(format("Iterating with attribute %s, and the result is: %s") % name % hasIt);
+            if (!hasIt) {
+                if (def) {
                     def->eval(state, env, v);
                     return;
-                }
-            } else {
-                state.forceAttrs(*vAttrs, pos);
-                if ((j = vAttrs->attrs->find(name)) == vAttrs->attrs->end())
+                } else {
+                    // Either it wasn't an attribute set, in which case this should trigger an error
+                    //printError("Right before state.forceAttrs");
+                    state.forceAttrs(*vAttrs, pos);
+                    // Or it was but didn't have the required attribute, in which case we trigger this error
                     throwEvalError(pos, "attribute '%1%' missing", name);
+                }
             }
-            vAttrs = j->value;
-            pos2 = j->pos;
+            //vAttrs = j->value;
+            //pos2 = j->pos;
             if (state.countCalls && pos2) state.attrSelects[*pos2]++;
         }
 
+        //printError("Right before state.forceValue");
         state.forceValue(*vAttrs, ( pos2 != NULL ? *pos2 : this->pos ) );
 
     } catch (Error & e) {
@@ -1155,19 +1209,14 @@ void ExprOpHasAttr::eval(EvalState & state, Env & env, Value & v)
     Value vTmp;
     Value * vAttrs = &vTmp;
 
-    e->eval(state, env, vTmp);
+    mkThunk(vTmp, env, e);
 
     for (auto & i : attrPath) {
-        state.forceValue(*vAttrs);
-        Bindings::iterator j;
         Symbol name = getName(i, state, env);
-        if (vAttrs->type != tAttrs ||
-            (j = vAttrs->attrs->find(name)) == vAttrs->attrs->end())
-        {
+        bool hasIt = evalValueAttr(state, name, *vAttrs);
+        if (!hasIt) {
             mkBool(v, false);
             return;
-        } else {
-            vAttrs = j->value;
         }
     }
 
@@ -1189,6 +1238,14 @@ void ExprApp::eval(EvalState & state, Env & env, Value & v)
     Value vFun;
     e1->eval(state, env, vFun);
     state.callFunction(vFun, *(e2->maybeThunk(state, env)), v, pos);
+}
+
+bool ExprApp::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v)
+{
+    /* FIXME: vFun prevents GCC from doing tail call optimisation. */
+    Value vFun;
+    e1->eval(state, env, vFun);
+    return state.callFunctionAttr(vFun, *(e2->maybeThunk(state, env)), name, v, pos);
 }
 
 
@@ -1226,6 +1283,103 @@ void EvalState::callPrimOp(Value & fun, Value & arg, Value & v, const Pos & pos)
         v.primOpApp.left = fun2;
         v.primOpApp.right = &arg;
     }
+}
+
+bool EvalState::callFunctionAttr(Value & fun, Value & arg, const Symbol & name, Value & v, const Pos & pos)
+{
+    auto trace = evalSettings.traceFunctionCalls ? std::make_unique<FunctionCallTrace>(pos) : nullptr;
+
+    forceValue(fun, pos);
+
+    if (fun.type == tPrimOp || fun.type == tPrimOpApp) {
+        callPrimOp(fun, arg, v, pos);
+        return evalValueAttr(*this, name, v);
+    }
+
+    if (fun.type == tAttrs) {
+      auto found = fun.attrs->find(sFunctor);
+      if (found != fun.attrs->end()) {
+        /* fun may be allocated on the stack of the calling function,
+         * but for functors we may keep a reference, so heap-allocate
+         * a copy and use that instead.
+         */
+        auto & fun2 = *allocValue();
+        fun2 = fun;
+        /* !!! Should we use the attr pos here? */
+        Value v2;
+        callFunction(*found->value, fun2, v2, pos);
+        return callFunctionAttr(v2, arg, name, v, pos);
+      }
+    }
+
+    if (fun.type != tLambda)
+        throwTypeError(pos, "attempt to call something which is not a function but %1%", fun);
+
+    ExprLambda & lambda(*fun.lambda.fun);
+
+    auto size =
+        (lambda.arg.empty() ? 0 : 1) +
+        (lambda.matchAttrs ? lambda.formals->formals.size() : 0);
+    Env & env2(allocEnv(size));
+    env2.up = fun.lambda.env;
+
+    size_t displ = 0;
+
+    if (!lambda.matchAttrs)
+        env2.values[displ++] = &arg;
+
+    else {
+        forceAttrs(arg, pos);
+
+        if (!lambda.arg.empty())
+            env2.values[displ++] = &arg;
+
+        /* For each formal argument, get the actual argument.  If
+           there is no matching actual argument but the formal
+           argument has a default, use the default. */
+        size_t attrsUsed = 0;
+        for (auto & i : lambda.formals->formals) {
+            Bindings::iterator j = arg.attrs->find(i.name);
+            if (j == arg.attrs->end()) {
+                if (!i.def) throwTypeError(pos, "%1% called without required argument '%2%'",
+                    lambda, i.name);
+                env2.values[displ++] = i.def->maybeThunk(*this, env2);
+            } else {
+                attrsUsed++;
+                env2.values[displ++] = j->value;
+            }
+        }
+
+        /* Check that each actual argument is listed as a formal
+           argument (unless the attribute match specifies a `...'). */
+        if (!lambda.formals->ellipsis && attrsUsed != arg.attrs->size()) {
+            /* Nope, so show the first unexpected argument to the
+               user. */
+            for (auto & i : *arg.attrs)
+                if (lambda.formals->argNames.find(i.name) == lambda.formals->argNames.end())
+                    throwTypeError(pos, "%1% called with unexpected argument '%2%'", lambda, i.name);
+            abort(); // can't happen
+        }
+    }
+
+    nrFunctionCalls++;
+    if (countCalls) incrFunctionCall(&lambda);
+
+    /* Evaluate the body.  This is conditional on showTrace, because
+       catching exceptions makes this function not tail-recursive. */
+    if (loggerSettings.showTrace.get())
+        try {
+            return lambda.body->evalAttr(*this, env2, name, v);
+        } catch (Error & e) {
+            addErrorTrace(e, lambda.pos, "while evaluating %s",
+              (lambda.name.set()
+                  ? "'" + (string) lambda.name + "'"
+                  : "anonymous lambda"));
+            addErrorTrace(e, pos, "from call site%s", "");
+            throw;
+        }
+    else
+        return fun.lambda.fun->body->evalAttr(*this, env2, name, v);
 }
 
 void EvalState::callFunction(Value & fun, Value & arg, Value & v, const Pos & pos)
@@ -1483,6 +1637,11 @@ void ExprOpUpdate::eval(EvalState & state, Env & env, Value & v)
     while (j != v2.attrs->end()) v.attrs->push_back(*j++);
 
     state.nrOpUpdateValuesCopied += v.attrs->size();
+}
+
+bool ExprOpUpdate::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v) {
+    //printError(format("ExprOpUpdate::evalAttr called for %s // %s and %s") % *e1 % *e2 % name);
+    return e2->evalAttr(state, env, name, v) || e1->evalAttr(state, env, name, v);
 }
 
 

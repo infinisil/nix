@@ -14,6 +14,7 @@
 
 namespace nix {
 
+bool evalValueAttr(EvalState & state, const Symbol & name, Value & v);
 
 class Store;
 class EvalState;
@@ -283,6 +284,7 @@ public:
     bool isFunctor(Value & fun);
 
     void callFunction(Value & fun, Value & arg, Value & v, const Pos & pos);
+    bool callFunctionAttr(Value & fun, Value & arg, const Symbol & name, Value & v, const Pos & pos);
     void callPrimOp(Value & fun, Value & arg, Value & v, const Pos & pos);
 
     /* Automatically call a function for which each argument has a
