@@ -46,6 +46,20 @@ void EvalState::forceValue(Value & v, const Pos & pos)
             throw;
         }
     }
+    else if (v.type == tPartialThunk) {
+        Env * env = v.partialThunk.env;
+        Expr * expr = v.partialThunk.expr;
+        try {
+            v.type = tBlackhole;
+            //checkInterrupt();
+            expr->eval(*this, *env, v);
+        } catch (...) {
+            v.type = tPartialThunk;
+            v.partialThunk.env = env;
+            v.partialThunk.expr = expr;
+            throw;
+        }
+    }
     else if (v.type == tApp)
         callFunction(*v.app.left, *v.app.right, v, noPos);
     else if (v.type == tBlackhole)

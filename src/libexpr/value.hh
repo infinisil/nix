@@ -20,6 +20,8 @@ typedef enum {
     tList2,
     tListN,
     tThunk,
+    // Hmm...
+    tPartialThunk,
     tApp,
     tLambda,
     tBlackhole,
@@ -132,6 +134,15 @@ struct Value
             Env * env;
             Expr * expr;
         } thunk;
+        struct {
+            Env * env;
+            Expr * expr;
+            // value is an Expr-specific value it can use to store a partial evaluation result
+            // Needed for an efficient lazy // and ++
+            // If both left and right are neither a tThunk or tPartialThunk, this Value itself can be turned into a non-tPartialThunk too by calling expr->eval
+            Value * left;
+            Value * right;
+        } partialThunk;
         struct {
             Value * left, * right;
         } app;

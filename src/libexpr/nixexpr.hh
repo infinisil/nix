@@ -79,8 +79,13 @@ struct Expr
     virtual ~Expr() { };
     virtual void show(std::ostream & str) const;
     virtual void bindVars(const StaticEnv & env);
+    // if strict == true, evaluate the expression into normal form
+    // if strict == false, evaluate the expression into a value without doing any extra eval
     virtual void eval(EvalState & state, Env & env, Value & v);
-    virtual bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v);
+    // To get a single attribute, call eval with strict = false
+    // Then call evalAttr on the gotten value
+    // eval caches its result under the expressions value field such that it can be called multiple times
+    virtual bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr);
     virtual Value * maybeThunk(EvalState & state, Env & env);
     virtual void setName(Symbol & name);
 };
@@ -158,7 +163,7 @@ struct ExprVar : Expr
     COMMON_METHODS
     Value * maybeThunk(EvalState & state, Env & env);
 
-    bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v);
+    bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr);
 };
 
 struct ExprSelect : Expr
@@ -256,7 +261,7 @@ struct ExprLet : Expr
     Expr * body;
     ExprLet(ExprAttrs * attrs, Expr * body) : attrs(attrs), body(body) { };
     COMMON_METHODS
-    bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v);
+    bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr);
 };
 
 struct ExprWith : Expr
@@ -333,7 +338,7 @@ struct ExprApp : Expr
         e1->bindVars(env); e2->bindVars(env);
     }
     void eval(EvalState & state, Env & env, Value & v);
-    bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v);
+    bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr);
 };
 
 
@@ -352,7 +357,7 @@ struct ExprOpUpdate : Expr
         e1->bindVars(env); e2->bindVars(env);
     }
     void eval(EvalState & state, Env & env, Value & v);
-    bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v);
+    bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr);
 };
 
 struct ExprConcatStrings : Expr

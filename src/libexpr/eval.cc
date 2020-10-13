@@ -118,8 +118,13 @@ static void printValue(std::ostream & str, std::set<const Value *> & active, con
         str << "]";
         break;
     case tThunk:
+        str << "<THUNK of " << *v.thunk.expr << ">";
+        break;
     case tApp:
-        str << "<CODE>";
+        str << "<APP>";
+        break;
+    case tPartialThunk:
+        str << "<PARTIAL THUNK>";
         break;
     case tLambda:
         str << "<LAMBDA>";
@@ -173,6 +178,7 @@ string showType(ValueType type)
         case tAttrs: return "a set";
         case tList1: case tList2: case tListN: return "a list";
         case tThunk: return "a thunk";
+        case tPartialThunk: return "a partial thunk";
         case tApp: return "a function application";
         case tLambda: return "a function";
         case tBlackhole: return "a black hole";
@@ -786,6 +792,16 @@ static inline void mkThunk(Value & v, Env & env, Expr * expr)
     nrThunks++;
 }
 
+static inline void mkPartialThunk(Value & v, Env & env, Expr * expr, Value * left, Value * right)
+{
+    v.type = tPartialThunk;
+    v.partialThunk.env = &env;
+    v.partialThunk.expr = expr;
+    v.partialThunk.left = left;
+    v.partialThunk.right = right;
+    nrThunks++;
+}
+
 
 void EvalState::mkThunk_(Value & v, Expr * expr)
 {
@@ -946,11 +962,11 @@ void Expr::eval(EvalState & state, Env & env, Value & v)
     abort();
 }
 
-bool Expr::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v)
+bool Expr::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr)
 {
     //printError(format("Expr::evalAttr called for %s.%s") % *this % name);
     this->eval(state, env, v);
-    return evalValueAttr(state, name, v);
+    return evalValueAttr(state, name, v, vAttr);
 }
 
 
@@ -1076,8 +1092,9 @@ void ExprLet::eval(EvalState & state, Env & env, Value & v)
     body->eval(state, env2, v);
 }
 
-bool ExprLet::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v)
+bool ExprLet::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr)
 {
+
     /* Create a new environment that contains the attributes in this
        `let'. */
     Env & env2(state.allocEnv(attrs->attrs.size()));
@@ -1090,7 +1107,7 @@ bool ExprLet::evalAttr(EvalState & state, Env & env, const Symbol & name, Value 
     for (auto & i : attrs->attrs)
         env2.values[displ++] = i.second.e->maybeThunk(state, i.second.inherited ? env : env2);
 
-    return body->evalAttr(state, env2, name, v);
+    return body->evalAttr(state, env2, name, v, vAttr);
 }
 
 
@@ -1109,11 +1126,15 @@ void ExprVar::eval(EvalState & state, Env & env, Value & v)
     v = *v2;
 }
 
-bool ExprVar::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v)
+bool ExprVar::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr)
 {
+    // Only variables can be evaluated multiple times in different ways
     Value * v2 = state.lookupVar(&env, *this, false);
+    // This makes it fast vv
+    //state.forceValue(*v2, pos);
+    bool result = evalValueAttr(state, name, *v2, vAttr);
     v = *v2;
-    return evalValueAttr(state, name, v);
+    return result;
 }
 
 
@@ -1136,12 +1157,25 @@ static string showAttrPath(EvalState & state, Env & env, const AttrPath & attrPa
 
 unsigned long nrLookups = 0;
 
-bool evalValueAttr(EvalState & state, const Symbol & name, Value & v) {
-    //printError(format("evalValueAttr called for %s.%s") % v % name);
+// Change this to a pair returning:
+// (whether the attribute was found, whether the input value is in normal form (no thunk))
+// Wait no we can just check the second one
+//
+bool evalValueAttr(EvalState & state, const Symbol & name, Value & v, Value & vAttr) {
+    //printError(format("evalValueAttr called for (%s).%s") % v % name);
     if (v.type == tThunk) {
         Env * env = v.thunk.env;
         Expr * expr = v.thunk.expr;
-        return expr->evalAttr(state, *env, name, v);
+        // @future me: Do the force here!
+        // This will replace v with a possibly more evaluated form
+        return expr->evalAttr(state, *env, name, v, vAttr);
+    }
+    if (v.type == tPartialThunk) {
+        Env * env = v.partialThunk.env;
+        Expr * expr = v.partialThunk.expr;
+        // @future me: Do the force here!
+        // This will replace v with a possibly more evaluated form
+        return expr->evalAttr(state, *env, name, v, vAttr);
     }
 
     state.forceValue(v, Pos());
@@ -1152,7 +1186,7 @@ bool evalValueAttr(EvalState & state, const Symbol & name, Value & v) {
     if ((j = v.attrs->find(name)) == v.attrs->end())
         return false;
 
-    v = *j->value;
+    vAttr = *j->value;
     return true;
 }
 
@@ -1171,8 +1205,11 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
             nrLookups++;
             //Bindings::iterator j;
             Symbol name = getName(i, state, env);
-            bool hasIt = evalValueAttr(state, name, *vAttrs);
-            //printError(format("Iterating with attribute %s, and the result is: %s") % name % hasIt);
+            //Value * v2 = state.allocValue();
+            //printError(format("Before calling evalValueAttr with %s and %s") % vAttrs % v2);
+            Value v2;
+            bool hasIt = evalValueAttr(state, name, *vAttrs, v2);
+            //printError(format("After calling evalValueAttr with %s and %s") % vAttrs % v2);
             if (!hasIt) {
                 if (def) {
                     def->eval(state, env, v);
@@ -1185,6 +1222,9 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
                     throwEvalError(pos, "attribute '%1%' missing", name);
                 }
             }
+            //assert(vAttrs != v2);
+            //printError(format("Changing vAttrs from %s to %s") % vAttrs % v2);
+            *vAttrs = v2;
             //vAttrs = j->value;
             //pos2 = j->pos;
             if (state.countCalls && pos2) state.attrSelects[*pos2]++;
@@ -1213,11 +1253,13 @@ void ExprOpHasAttr::eval(EvalState & state, Env & env, Value & v)
 
     for (auto & i : attrPath) {
         Symbol name = getName(i, state, env);
-        bool hasIt = evalValueAttr(state, name, *vAttrs);
+        Value vTmp2;
+        bool hasIt = evalValueAttr(state, name, *vAttrs, vTmp2);
         if (!hasIt) {
             mkBool(v, false);
             return;
         }
+        vAttrs = &vTmp2;
     }
 
     mkBool(v, true);
@@ -1240,12 +1282,12 @@ void ExprApp::eval(EvalState & state, Env & env, Value & v)
     state.callFunction(vFun, *(e2->maybeThunk(state, env)), v, pos);
 }
 
-bool ExprApp::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v)
+bool ExprApp::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr)
 {
     /* FIXME: vFun prevents GCC from doing tail call optimisation. */
     Value vFun;
     e1->eval(state, env, vFun);
-    return state.callFunctionAttr(vFun, *(e2->maybeThunk(state, env)), name, v, pos);
+    return state.callFunctionAttr(vFun, *(e2->maybeThunk(state, env)), name, v, vAttr, pos);
 }
 
 
@@ -1285,7 +1327,7 @@ void EvalState::callPrimOp(Value & fun, Value & arg, Value & v, const Pos & pos)
     }
 }
 
-bool EvalState::callFunctionAttr(Value & fun, Value & arg, const Symbol & name, Value & v, const Pos & pos)
+bool EvalState::callFunctionAttr(Value & fun, Value & arg, const Symbol & name, Value & v, Value & vAttr, const Pos & pos)
 {
     auto trace = evalSettings.traceFunctionCalls ? std::make_unique<FunctionCallTrace>(pos) : nullptr;
 
@@ -1293,7 +1335,7 @@ bool EvalState::callFunctionAttr(Value & fun, Value & arg, const Symbol & name, 
 
     if (fun.type == tPrimOp || fun.type == tPrimOpApp) {
         callPrimOp(fun, arg, v, pos);
-        return evalValueAttr(*this, name, v);
+        return evalValueAttr(*this, name, v, vAttr);
     }
 
     if (fun.type == tAttrs) {
@@ -1308,7 +1350,7 @@ bool EvalState::callFunctionAttr(Value & fun, Value & arg, const Symbol & name, 
         /* !!! Should we use the attr pos here? */
         Value v2;
         callFunction(*found->value, fun2, v2, pos);
-        return callFunctionAttr(v2, arg, name, v, pos);
+        return callFunctionAttr(v2, arg, name, v, vAttr, pos);
       }
     }
 
@@ -1369,7 +1411,7 @@ bool EvalState::callFunctionAttr(Value & fun, Value & arg, const Symbol & name, 
        catching exceptions makes this function not tail-recursive. */
     if (loggerSettings.showTrace.get())
         try {
-            return lambda.body->evalAttr(*this, env2, name, v);
+            return lambda.body->evalAttr(*this, env2, name, v, vAttr);
         } catch (Error & e) {
             addErrorTrace(e, lambda.pos, "while evaluating %s",
               (lambda.name.set()
@@ -1379,7 +1421,7 @@ bool EvalState::callFunctionAttr(Value & fun, Value & arg, const Symbol & name, 
             throw;
         }
     else
-        return fun.lambda.fun->body->evalAttr(*this, env2, name, v);
+        return fun.lambda.fun->body->evalAttr(*this, env2, name, v, vAttr);
 }
 
 void EvalState::callFunction(Value & fun, Value & arg, Value & v, const Pos & pos)
@@ -1609,7 +1651,11 @@ void ExprOpUpdate::eval(EvalState & state, Env & env, Value & v)
     Value v1, v2;
     state.evalAttrs(env, e1, v1);
     state.evalAttrs(env, e2, v2);
+    attrUpdate(state, env, v1, v2, v);
+}
 
+void attrUpdate(EvalState & state, Env & env, Value & v1, Value & v2, Value & v)
+{
     state.nrOpUpdates++;
 
     if (v1.attrs->size() == 0) { v = v2; return; }
@@ -1639,9 +1685,99 @@ void ExprOpUpdate::eval(EvalState & state, Env & env, Value & v)
     state.nrOpUpdateValuesCopied += v.attrs->size();
 }
 
-bool ExprOpUpdate::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v) {
+/* Change to return (bool, bool)
+ * Where second bool means "I am ready to be turned to normal form"
+ * Which is returned when both left and right expressions are in normal form
+ * The calling code then calls forceValue on the expression, which causes this function to not be called again
+ *
+ *
+ */
+bool ExprOpUpdate::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr) {
+    //this->eval(state, env, v);
+    //state.forceValue(v);
+    //return evalValueAttr(state, name, v);
     //printError(format("ExprOpUpdate::evalAttr called for %s // %s and %s") % *e1 % *e2 % name);
-    return e2->evalAttr(state, env, name, v) || e1->evalAttr(state, env, name, v);
+    //printError(format("ExprOpUpdate::evalAttr called with destinations %s and %s") % &v % &vAttr);
+    //
+    // Semantics: If all the sub expressions have been turned to normal form,
+    //
+    //printError(format("ExprOpUpdate::evalAttr called on (%s // %s).%s") % *e1 % *e2 % name);
+    //if (v.type) {
+    //    printError(format("v is %s") % v);
+    //} else {
+    //    printError(format("v is uninitialized"));
+    //}
+    //if (vAttr.type) {
+    //    printError(format("vAttr is %s") % vAttr);
+    //} else {
+    //    printError(format("vAttr is uninitialized"));
+    //}
+    //printError("After printing code");
+
+    if (v.type == tPartialThunk) {
+        //printError(format("ExprOpUpdate::evalAttr called with a partial thunk"));
+        // If we have a partial thunk already, this means that a previous evaluation evaled
+        Value * v2 = v.partialThunk.right;
+        if (evalValueAttr(state, name, *v2, vAttr)) {
+            return true;
+        } else {
+            if (v.partialThunk.left) {
+                Value * v1 = v.partialThunk.left;
+                bool result = e1->evalAttr(state, env, name, *v1, vAttr);
+                if (v1->type != tThunk && v1->type != tPartialThunk && v2->type != tThunk && v2->type != tPartialThunk) {
+                    attrUpdate(state, env, *v1, *v2, v);
+                }
+                return result;
+            } else {
+                Value v1;
+                bool result = e1->evalAttr(state, env, name, v1, vAttr);
+                if (v1.type != tThunk && v1.type != tPartialThunk && v2->type != tThunk && v2->type != tPartialThunk) {
+                    attrUpdate(state, env, v1, *v2, v);
+                }
+                return result;
+            }
+        }
+    }
+
+    Value v2;
+    if (e2->evalAttr(state, env, name, v2, vAttr)) {
+        Value * v2Heap = state.allocValue();
+        *v2Heap = v2;
+        // Construct a thunk containing an ExprOpUpdate with
+        //mkThunk(v, env, this);
+        v.type = tPartialThunk;
+        v.partialThunk.env = &env;
+        v.partialThunk.expr = this;
+        v.partialThunk.right = v2Heap;
+        return true;
+    } else {
+        Value v1;
+        bool result = e1->evalAttr(state, env, name, v1, vAttr);
+        // We have a Value for both left and right
+        // If both of them are not thunks, evaluate this operation completely
+        // Such that only if any one of them is a thunk, we return a new thunk
+        if (v1.type != tThunk && v1.type != tPartialThunk && v2.type != tThunk && v2.type != tPartialThunk) {
+            attrUpdate(state, env, v1, v2, v);
+        } else {
+            Value * v1Heap = state.allocValue();
+            *v1Heap = v1;
+            Value * v2Heap = state.allocValue();
+            *v2Heap = v2;
+
+            v.type = tPartialThunk;
+            v.partialThunk.env = &env;
+            v.partialThunk.expr = this;
+            v.partialThunk.left = v1Heap;
+            v.partialThunk.right = v2Heap;
+        }
+        return result;
+    }
+
+    /* Make this function also return a Value & v that is the result of the expression itself
+     * But only evaluated as minimally as possible
+     * Check/create thunks to achieve that
+     */
+
 }
 
 

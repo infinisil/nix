@@ -14,7 +14,8 @@
 
 namespace nix {
 
-bool evalValueAttr(EvalState & state, const Symbol & name, Value & v);
+bool evalValueAttr(EvalState & state, const Symbol & name, Value & v, Value & vAttr);
+void attrUpdate(EvalState & state, Env & env, Value & v1, Value & v2, Value & v);
 
 class Store;
 class EvalState;
@@ -284,7 +285,7 @@ public:
     bool isFunctor(Value & fun);
 
     void callFunction(Value & fun, Value & arg, Value & v, const Pos & pos);
-    bool callFunctionAttr(Value & fun, Value & arg, const Symbol & name, Value & v, const Pos & pos);
+    bool callFunctionAttr(Value & fun, Value & arg, const Symbol & name, Value & v, Value & vAttr, const Pos & pos);
     void callPrimOp(Value & fun, Value & arg, Value & v, const Pos & pos);
 
     /* Automatically call a function for which each argument has a
@@ -342,6 +343,7 @@ private:
     friend struct ExprOpUpdate;
     friend struct ExprOpConcatLists;
     friend struct ExprSelect;
+    friend void attrUpdate(EvalState & state, Env & env, Value & v1, Value & v2, Value & v);
     friend void prim_getAttr(EvalState & state, const Pos & pos, Value * * args, Value & v);
     friend void prim_match(EvalState & state, const Pos & pos, Value * * args, Value & v);
 };
