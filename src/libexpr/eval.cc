@@ -966,7 +966,7 @@ bool Expr::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v
 {
     //printError(format("Expr::evalAttr called for %s.%s") % *this % name);
     this->eval(state, env, v);
-    return evalValueAttr(state, name, v, vAttr);
+    return evalValueAttr(state, name, v, vAttr, Pos());
 }
 
 
@@ -1132,7 +1132,7 @@ bool ExprVar::evalAttr(EvalState & state, Env & env, const Symbol & name, Value 
     Value * v2 = state.lookupVar(&env, *this, false);
     // This makes it fast vv
     //state.forceValue(*v2, pos);
-    bool result = evalValueAttr(state, name, *v2, vAttr);
+    bool result = evalValueAttr(state, name, *v2, vAttr, pos);
     v = *v2;
     return result;
 }
@@ -1163,7 +1163,7 @@ unsigned long nrLookups = 0;
 //
 //
 // Similar to forceValue -> Must handle tBlackhole (inf rec)
-bool evalValueAttr(EvalState & state, const Symbol & name, Value & v, Value & vAttr) {
+bool evalValueAttr(EvalState & state, const Symbol & name, Value & v, Value & vAttr, const Pos & pos) {
     //printError(format("evalValueAttr called for (%s).%s") % v % name);
     if (v.type == tThunk) {
         Env * env = v.thunk.env;
@@ -1194,10 +1194,10 @@ bool evalValueAttr(EvalState & state, const Symbol & name, Value & v, Value & vA
             throw;
         }
     } else if (v.type == tBlackhole) {
-        throwEvalError(Pos(), "infinite recursion encountered");
+        throwEvalError(pos, "infinite recursion encountered");
     }
 
-    state.forceValue(v, Pos());
+    state.forceValue(v, pos);
     if (v.type != tAttrs)
         return false;
 
@@ -1227,7 +1227,7 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
             //Value * v2 = state.allocValue();
             //printError(format("Before calling evalValueAttr with %s and %s") % vAttrs % v2);
             Value v2;
-            bool hasIt = evalValueAttr(state, name, *vAttrs, v2);
+            bool hasIt = evalValueAttr(state, name, *vAttrs, v2, pos);
             //printError(format("After calling evalValueAttr with %s and %s") % vAttrs % v2);
             if (!hasIt) {
                 if (def) {
@@ -1273,7 +1273,7 @@ void ExprOpHasAttr::eval(EvalState & state, Env & env, Value & v)
     for (auto & i : attrPath) {
         Symbol name = getName(i, state, env);
         Value vTmp2;
-        bool hasIt = evalValueAttr(state, name, *vAttrs, vTmp2);
+        bool hasIt = evalValueAttr(state, name, *vAttrs, vTmp2, Pos());
         if (!hasIt) {
             mkBool(v, false);
             return;
@@ -1354,7 +1354,7 @@ bool EvalState::callFunctionAttr(Value & fun, Value & arg, const Symbol & name, 
 
     if (fun.type == tPrimOp || fun.type == tPrimOpApp) {
         callPrimOp(fun, arg, v, pos);
-        return evalValueAttr(*this, name, v, vAttr);
+        return evalValueAttr(*this, name, v, vAttr, pos);
     }
 
     if (fun.type == tAttrs) {
@@ -1737,7 +1737,7 @@ bool ExprOpUpdate::evalAttr(EvalState & state, Env & env, const Symbol & name, V
         //printError(format("ExprOpUpdate::evalAttr called with a partial thunk"));
         // If we have a partial thunk already, this means that a previous evaluation evaled
         Value * v2 = v.partialThunk.right;
-        if (evalValueAttr(state, name, *v2, vAttr)) {
+        if (evalValueAttr(state, name, *v2, vAttr, pos)) {
             return true;
         } else {
             if (v.partialThunk.left) {

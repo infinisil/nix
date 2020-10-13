@@ -14,7 +14,7 @@
 
 namespace nix {
 
-bool evalValueAttr(EvalState & state, const Symbol & name, Value & v, Value & vAttr);
+bool evalValueAttr(EvalState & state, const Symbol & name, Value & v, Value & vAttr, const Pos & pos);
 void attrUpdate(EvalState & state, Env & env, Value & v1, Value & v2, Value & v);
 
 class Store;
