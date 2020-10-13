@@ -1161,6 +1161,8 @@ unsigned long nrLookups = 0;
 // (whether the attribute was found, whether the input value is in normal form (no thunk))
 // Wait no we can just check the second one
 //
+//
+// Similar to forceValue -> Must handle tBlackhole (inf rec)
 bool evalValueAttr(EvalState & state, const Symbol & name, Value & v, Value & vAttr) {
     //printError(format("evalValueAttr called for (%s).%s") % v % name);
     if (v.type == tThunk) {
@@ -1168,14 +1170,31 @@ bool evalValueAttr(EvalState & state, const Symbol & name, Value & v, Value & vA
         Expr * expr = v.thunk.expr;
         // @future me: Do the force here!
         // This will replace v with a possibly more evaluated form
-        return expr->evalAttr(state, *env, name, v, vAttr);
+        try {
+            v.type = tBlackhole;
+            return expr->evalAttr(state, *env, name, v, vAttr);
+        } catch (...) {
+            v.type = tThunk;
+            v.thunk.env = env;
+            v.thunk.expr = expr;
+            throw;
+        }
     }
-    if (v.type == tPartialThunk) {
+    else if (v.type == tPartialThunk) {
         Env * env = v.partialThunk.env;
         Expr * expr = v.partialThunk.expr;
-        // @future me: Do the force here!
-        // This will replace v with a possibly more evaluated form
-        return expr->evalAttr(state, *env, name, v, vAttr);
+
+        try {
+            v.type = tBlackhole;
+            return expr->evalAttr(state, *env, name, v, vAttr);
+        } catch (...) {
+            v.type = tThunk;
+            v.thunk.env = env;
+            v.thunk.expr = expr;
+            throw;
+        }
+    } else if (v.type == tBlackhole) {
+        throwEvalError(Pos(), "infinite recursion encountered");
     }
 
     state.forceValue(v, Pos());
