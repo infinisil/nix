@@ -8,7 +8,6 @@
 
 namespace nix {
 
-
 typedef enum {
     tInt = 1,
     tBool,
@@ -20,21 +19,32 @@ typedef enum {
     tList2,
     tListN,
     tThunk,
-    // Hmm...
-    tPartialThunk,
     tApp,
     tLambda,
     tBlackhole,
     tPrimOp,
     tPrimOpApp,
     tExternal,
-    tFloat
+    tFloat,
+    tPartialBinOp,
 } ValueType;
 
+/* Different value types:
+ * - Things that can still be further evaluated (tThunk, tApp, tBlackhole, tPrimOpApp)
+ * - Things that are in WHNF (tInt, tBool, tString, tPath, tNull, tAttrs, tList*, tLambda, tPrimOp, tFloat)
+ * - And things inbetween, which can still be further evaluated, but information about its WHNF can already be gotten without further evaluation (tPartialBinOp)
+ *
+ *
+ * Consumers may require:
+ * - A result by in WHNF so the toplevel structure can be inspected
+ * - The result is either in WHNF or inbetween, if some information needs to be gotten out of the result, but the inbetween states can be handled better than just with WHNF
+ * - The result may be further evaluated
+ */
 
 class Bindings;
 struct Env;
 struct Expr;
+struct ExprLazyBinOp;
 struct ExprLambda;
 struct PrimOp;
 class Symbol;
@@ -89,7 +99,6 @@ class ExternalValueBase
 
 std::ostream & operator << (std::ostream & str, const ExternalValueBase & v);
 
-
 struct Value
 {
     ValueType type;
@@ -136,13 +145,10 @@ struct Value
         } thunk;
         struct {
             Env * env;
-            Expr * expr;
-            // value is an Expr-specific value it can use to store a partial evaluation result
-            // Needed for an efficient lazy // and ++
-            // If both left and right are neither a tThunk or tPartialThunk, this Value itself can be turned into a non-tPartialThunk too by calling expr->eval
+            ExprLazyBinOp * expr;
             Value * left;
             Value * right;
-        } partialThunk;
+        } partialBinOp;
         struct {
             Value * left, * right;
         } app;
@@ -176,6 +182,20 @@ struct Value
     size_t listSize() const
     {
         return type == tList1 ? 1 : type == tList2 ? 2 : bigList.size;
+    }
+
+    bool isWHNF() const
+    {
+        switch (type) {
+        case tThunk:
+        case tApp:
+        case tPartialBinOp:
+            return false;
+        case tPrimOpApp:
+            abort();
+        default:
+            return true;
+        }
     }
 
     /* Check whether forcing this value requires a trivial amount of
@@ -233,7 +253,7 @@ static inline void mkApp(Value & v, Value & left, Value & right)
     v.app.right = &right;
 }
 
-
+// Unused
 static inline void mkPrimOpApp(Value & v, Value & left, Value & right)
 {
     v.type = tPrimOpApp;

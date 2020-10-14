@@ -1,0 +1,3 @@
+- Write a function that gets an attribute from a Value, evaluating it as little as possible
+- Convert an expression to a thunk, then pass it to above function
+-

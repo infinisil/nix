@@ -1,6 +1,7 @@
 #pragma once
 
 #include "eval.hh"
+#include "util.hh"
 
 #define LocalNoInline(f) static f __attribute__((noinline)); f
 #define LocalNoInlineNoReturn(f) static f __attribute__((noinline, noreturn)); f
@@ -30,6 +31,7 @@ LocalNoInlineNoReturn(void throwTypeError(const Pos & pos, const char * s, const
 }
 
 
+// Forces the value into WHNF
 void EvalState::forceValue(Value & v, const Pos & pos)
 {
     if (v.type == tThunk) {
@@ -46,19 +48,9 @@ void EvalState::forceValue(Value & v, const Pos & pos)
             throw;
         }
     }
-    else if (v.type == tPartialThunk) {
-        Env * env = v.partialThunk.env;
-        Expr * expr = v.partialThunk.expr;
-        try {
-            v.type = tBlackhole;
-            //checkInterrupt();
-            expr->eval(*this, *env, v);
-        } catch (...) {
-            v.type = tPartialThunk;
-            v.partialThunk.env = env;
-            v.partialThunk.expr = expr;
-            throw;
-        }
+    else if (v.type == tPartialBinOp) {
+        // TODO: Maybe handle inf rec here
+        v.partialBinOp.expr->evalBinOp(*this, *v.partialBinOp.env, v.partialBinOp.left, v.partialBinOp.right, v);
     }
     else if (v.type == tApp)
         callFunction(*v.app.left, *v.app.right, v, noPos);
@@ -66,6 +58,45 @@ void EvalState::forceValue(Value & v, const Pos & pos)
         throwEvalError(pos, "infinite recursion encountered");
 }
 
+void EvalState::evalValueMinimal(Value & v, const Pos & pos)
+{
+    // TODO: Maybe handle inf rec here
+    if (v.type == tThunk) {
+        v.thunk.expr->evalMinimal(*this, *v.thunk.env, v);
+    } else if (v.type == tApp) {
+        callFunctionMinimal(*v.app.left, *v.app.right, v, pos);
+    }
+}
+
+bool EvalState::evalValueAttr(Value & v, const Symbol & name, Value & vAttr, const Pos & pos) {
+    evalValueMinimal(v, pos);
+    if (v.type == tPartialBinOp) {
+
+        ExprLazyBinOp * expr = v.partialBinOp.expr;
+        Env * env = v.partialBinOp.env;
+        Value * left = v.partialBinOp.left;
+        Value * right = v.partialBinOp.right;
+
+        bool result = expr->evalMinimalAttr(*this, *env, left, right, name, vAttr);
+        if (left && right && left->isWHNF() && right->isWHNF()) {
+            expr->evalBinOp(*this, *env, left, right, v);
+        }
+        return result;
+    } else if (v.type == tAttrs) {
+
+        Bindings::iterator j;
+        if ((j = v.attrs->find(name)) == v.attrs->end())
+            return false;
+
+        vAttr = *j->value;
+        return true;
+
+    } else {
+        // TODO: Return false for most things, probably
+        printError("EvalState::evalValueAttr called with something we can't handle");
+        abort();
+    }
+}
 
 inline void EvalState::forceAttrs(Value & v)
 {

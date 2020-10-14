@@ -123,8 +123,8 @@ static void printValue(std::ostream & str, std::set<const Value *> & active, con
     case tApp:
         str << "<APP>";
         break;
-    case tPartialThunk:
-        str << "<PARTIAL THUNK>";
+    case tPartialBinOp:
+        str << "<PARTIAL BINOP>";
         break;
     case tLambda:
         str << "<LAMBDA>";
@@ -178,7 +178,7 @@ string showType(ValueType type)
         case tAttrs: return "a set";
         case tList1: case tList2: case tListN: return "a list";
         case tThunk: return "a thunk";
-        case tPartialThunk: return "a partial thunk";
+        case tPartialBinOp: return "a partial binop";
         case tApp: return "a function application";
         case tLambda: return "a function";
         case tBlackhole: return "a black hole";
@@ -792,16 +792,6 @@ static inline void mkThunk(Value & v, Env & env, Expr * expr)
     nrThunks++;
 }
 
-static inline void mkPartialThunk(Value & v, Env & env, Expr * expr, Value * left, Value * right)
-{
-    v.type = tPartialThunk;
-    v.partialThunk.env = &env;
-    v.partialThunk.expr = expr;
-    v.partialThunk.left = left;
-    v.partialThunk.right = right;
-    nrThunks++;
-}
-
 
 void EvalState::mkThunk_(Value & v, Expr * expr)
 {
@@ -957,18 +947,84 @@ inline void EvalState::evalAttrs(Env & env, Expr * e, Value & v)
 }
 
 
-void Expr::eval(EvalState & state, Env & env, Value & v)
+void Expr::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     abort();
 }
 
-bool Expr::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr)
+void Expr::eval(EvalState & state, Env & env, Value & v)
 {
-    //printError(format("Expr::evalAttr called for %s.%s") % *this % name);
-    this->eval(state, env, v);
-    return evalValueAttr(state, name, v, vAttr, Pos());
+    evalMinimal(state, env, v);
+    // Only check if the result is a tPartialBinOp and force that?
+    state.forceValue(v);
 }
 
+//bool Expr::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr)
+//{
+//    //printError(format("Expr::evalAttr called for %s.%s") % *this % name);
+//    this->eval(state, env, v);
+//    return evalValueAttr(state, name, v, vAttr, Pos());
+//}
+
+
+void ExprLazyBinOp::toPartialBinOp(EvalState & state, Env & env, Value & left, Value & right)
+{
+    // BinOp specific
+    abort();
+}
+
+
+void ExprLazyBinOp::evalPartialBinOpWHNF(EvalState & state, Env & env, const Value & left, const Value & right, Value & v)
+{
+    // BinOp specific
+    abort();
+}
+
+
+bool ExprLazyBinOp::evalPartialBinOpAttr(EvalState & state, Env & env, Value & left, Value & right, const Symbol & name, Value & v) {
+    // BinOp specific
+    abort();
+}
+
+
+void ExprLazyBinOp::evalWHNF(EvalState & state, Env & env, Value & v) {
+    Value * left;
+    Value * right;
+
+    if (!v.type) {
+        toPartialBinOp(state, env, left, right);
+    } else if (v.type == tPartialBinOp) {
+        left = v.partialBinOp.left;
+        right = v.partialBinOp.right;
+    } else {
+        abort();
+    }
+
+    state.forceValue(left);
+    state.forceValue(right);
+    evalPartialBinOpWHNF(state, env, left, right, v);
+}
+
+bool ExprLazyBinOp::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name, Value & vAttr) {
+    Value * left;
+    Value * right;
+
+    if (!v.type) {
+        toPartialBinOp(state, env, left, right);
+    } else if (v.type == tPartialBinOp) {
+        left = v.partialBinOp.left;
+        right = v.partialBinOp.right;
+    } else {
+        printError("ExprLazyBinOp::evalAttr called with neither an empty value nor a tPartialBinOp");
+        abort();
+    }
+
+    bool result = evalPartialBinOpAttr(state, env, left, right, name, vAttr);
+    if (left.isWHNF() && right.isWHNF()) {
+        evalPartialBinOpWHNF(state, env, left, right, v);
+    }
+    return result;
+}
 
 void ExprInt::eval(EvalState & state, Env & env, Value & v)
 {
@@ -1075,7 +1131,7 @@ void ExprAttrs::eval(EvalState & state, Env & env, Value & v)
 }
 
 
-void ExprLet::eval(EvalState & state, Env & env, Value & v)
+void ExprLet::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     /* Create a new environment that contains the attributes in this
        `let'. */
@@ -1089,26 +1145,11 @@ void ExprLet::eval(EvalState & state, Env & env, Value & v)
     for (auto & i : attrs->attrs)
         env2.values[displ++] = i.second.e->maybeThunk(state, i.second.inherited ? env : env2);
 
-    body->eval(state, env2, v);
+    body->evalMinimal(state, env2, v);
 }
 
-bool ExprLet::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr)
-{
-
-    /* Create a new environment that contains the attributes in this
-       `let'. */
-    Env & env2(state.allocEnv(attrs->attrs.size()));
-    env2.up = &env;
-
-    /* The recursive attributes are evaluated in the new environment,
-       while the inherited attributes are evaluated in the original
-       environment. */
-    size_t displ = 0;
-    for (auto & i : attrs->attrs)
-        env2.values[displ++] = i.second.e->maybeThunk(state, i.second.inherited ? env : env2);
-
-    return body->evalAttr(state, env2, name, v, vAttr);
-}
+// Refactor Expr*::eval to only be called when the v wasn't evaluated at all beforehand
+// Introduce a partial evaluation abstraction?
 
 
 void ExprList::eval(EvalState & state, Env & env, Value & v)
@@ -1118,6 +1159,10 @@ void ExprList::eval(EvalState & state, Env & env, Value & v)
         v.listElems()[n] = elems[n]->maybeThunk(state, env);
 }
 
+void ExprVar::evalMinimal(EvalState & state, Env & env, Value & v)
+{
+    v = *state.lookupVar(&env, *this, false);
+}
 
 void ExprVar::eval(EvalState & state, Env & env, Value & v)
 {
@@ -1157,62 +1202,12 @@ static string showAttrPath(EvalState & state, Env & env, const AttrPath & attrPa
 
 unsigned long nrLookups = 0;
 
-// Change this to a pair returning:
-// (whether the attribute was found, whether the input value is in normal form (no thunk))
-// Wait no we can just check the second one
-//
-//
-// Similar to forceValue -> Must handle tBlackhole (inf rec)
-bool evalValueAttr(EvalState & state, const Symbol & name, Value & v, Value & vAttr, const Pos & pos) {
-    //printError(format("evalValueAttr called for (%s).%s") % v % name);
-    if (v.type == tThunk) {
-        Env * env = v.thunk.env;
-        Expr * expr = v.thunk.expr;
-        // @future me: Do the force here!
-        // This will replace v with a possibly more evaluated form
-        try {
-            v.type = tBlackhole;
-            return expr->evalAttr(state, *env, name, v, vAttr);
-        } catch (...) {
-            v.type = tThunk;
-            v.thunk.env = env;
-            v.thunk.expr = expr;
-            throw;
-        }
-    }
-    else if (v.type == tPartialThunk) {
-        Env * env = v.partialThunk.env;
-        Expr * expr = v.partialThunk.expr;
-
-        try {
-            v.type = tBlackhole;
-            return expr->evalAttr(state, *env, name, v, vAttr);
-        } catch (...) {
-            v.type = tThunk;
-            v.thunk.env = env;
-            v.thunk.expr = expr;
-            throw;
-        }
-    } else if (v.type == tBlackhole) {
-        throwEvalError(pos, "infinite recursion encountered");
-    }
-
-    state.forceValue(v, pos);
-    if (v.type != tAttrs)
-        return false;
-
-    Bindings::iterator j;
-    if ((j = v.attrs->find(name)) == v.attrs->end())
-        return false;
-
-    vAttr = *j->value;
-    return true;
-}
 
 void ExprSelect::eval(EvalState & state, Env & env, Value & v)
 {
     //printError(format("ExprSelect::eval called for %s.%s") % *e % showAttrPath(state, env, attrPath));
     Value vTmp;
+    Value v2;
     Pos * pos2 = 0;
     Value * vAttrs = &vTmp;
 
@@ -1222,29 +1217,20 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
 
         for (auto & i : attrPath) {
             nrLookups++;
-            //Bindings::iterator j;
             Symbol name = getName(i, state, env);
-            //Value * v2 = state.allocValue();
-            //printError(format("Before calling evalValueAttr with %s and %s") % vAttrs % v2);
-            Value v2;
             bool hasIt = evalValueAttr(state, name, *vAttrs, v2, pos);
-            //printError(format("After calling evalValueAttr with %s and %s") % vAttrs % v2);
             if (!hasIt) {
                 if (def) {
                     def->eval(state, env, v);
                     return;
                 } else {
                     // Either it wasn't an attribute set, in which case this should trigger an error
-                    //printError("Right before state.forceAttrs");
                     state.forceAttrs(*vAttrs, pos);
                     // Or it was but didn't have the required attribute, in which case we trigger this error
                     throwEvalError(pos, "attribute '%1%' missing", name);
                 }
             }
-            //assert(vAttrs != v2);
-            //printError(format("Changing vAttrs from %s to %s") % vAttrs % v2);
             *vAttrs = v2;
-            //vAttrs = j->value;
             //pos2 = j->pos;
             if (state.countCalls && pos2) state.attrSelects[*pos2]++;
         }
@@ -1665,13 +1651,27 @@ void ExprOpImpl::eval(EvalState & state, Env & env, Value & v)
 }
 
 
-void ExprOpUpdate::eval(EvalState & state, Env & env, Value & v)
+//void ExprOpUpdate::evalMinimalLeft(EvalState & state, Env & env, Value & v)
+//{
+//    e1->evalMinimal(state, env, v);
+//}
+//void ExprOpUpdate::evalMinimalRight(EvalState & state, Env & env, Value & v)
+//{
+//    e2->evalMinimal(state, env, v);
+//}
+bool ExprOpUpdate::evalMinimalAttr(EvalState & state, Env & env, Value * left, Value * right, const Symbol & name, Value & vAttr)
 {
-    Value v1, v2;
-    state.evalAttrs(env, e1, v1);
-    state.evalAttrs(env, e2, v2);
-    attrUpdate(state, env, v1, v2, v);
+
+    return state.evalValueAttr(right, name, vAttr, pos) || state.evalValueAttr(left, name, vAttr, pos);
+
 }
+//void ExprOpUpdate::evalMinimal(EvalState & state, Env & env, Value & v)
+//{
+//    Value v1, v2;
+//    state.evalAttrs(env, e1, v1);
+//    state.evalAttrs(env, e2, v2);
+//    attrUpdate(state, env, v1, v2, v);
+//}
 
 void attrUpdate(EvalState & state, Env & env, Value & v1, Value & v2, Value & v)
 {
@@ -1712,27 +1712,6 @@ void attrUpdate(EvalState & state, Env & env, Value & v1, Value & v2, Value & v)
  *
  */
 bool ExprOpUpdate::evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr) {
-    //this->eval(state, env, v);
-    //state.forceValue(v);
-    //return evalValueAttr(state, name, v);
-    //printError(format("ExprOpUpdate::evalAttr called for %s // %s and %s") % *e1 % *e2 % name);
-    //printError(format("ExprOpUpdate::evalAttr called with destinations %s and %s") % &v % &vAttr);
-    //
-    // Semantics: If all the sub expressions have been turned to normal form,
-    //
-    //printError(format("ExprOpUpdate::evalAttr called on (%s // %s).%s") % *e1 % *e2 % name);
-    //if (v.type) {
-    //    printError(format("v is %s") % v);
-    //} else {
-    //    printError(format("v is uninitialized"));
-    //}
-    //if (vAttr.type) {
-    //    printError(format("vAttr is %s") % vAttr);
-    //} else {
-    //    printError(format("vAttr is uninitialized"));
-    //}
-    //printError("After printing code");
-
     if (v.type == tPartialThunk) {
         //printError(format("ExprOpUpdate::evalAttr called with a partial thunk"));
         // If we have a partial thunk already, this means that a previous evaluation evaled
@@ -1791,11 +1770,6 @@ bool ExprOpUpdate::evalAttr(EvalState & state, Env & env, const Symbol & name, V
         }
         return result;
     }
-
-    /* Make this function also return a Value & v that is the result of the expression itself
-     * But only evaluated as minimally as possible
-     * Check/create thunks to achieve that
-     */
 
 }
 

@@ -74,20 +74,131 @@ string showAttrPath(const AttrPath & attrPath);
 
 /* Abstract syntax of Nix expressions. */
 
+// Have an abstract class for a thing that can be evaluated, providing methods evalNF and evalAttr
+// Can be implemented by both Expr and Value
+//
+
 struct Expr
 {
     virtual ~Expr() { };
     virtual void show(std::ostream & str) const;
     virtual void bindVars(const StaticEnv & env);
-    // if strict == true, evaluate the expression into normal form
-    // if strict == false, evaluate the expression into a value without doing any extra eval
+
+    // Evaluates the expression into either WHNF or a partialBinOp
+    // This function is only called at most once, and that with an empty v
+    virtual void evalMinimal(EvalState & state, Env & env, Value & v);
+
     virtual void eval(EvalState & state, Env & env, Value & v);
-    // To get a single attribute, call eval with strict = false
-    // Then call evalAttr on the gotten value
-    // eval caches its result under the expressions value field such that it can be called multiple times
-    virtual bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr);
+
+    // We only need this ^ and an evalValueAttr, which can call an ExprLazyBinOp's functions
+
+    // Maybe later also an evalWHNF for better performance
+
+    // Evaluate an attribute of an expression into either WHNF or a partialBinOp
+    //
+    // Evaluate an attribute of a value minimally, similar to evalMinimal
+    // Here, v is initialized to an evalMinimal result and vAttr is empty and needs to be filled (if result is true)
+    //
+    // Evaluate an attribute of an expression into either WHNF or a partialBinOp
+    //virtual bool evalMinimalAttr(EvalState & state, Env & env, Value & v, const Symbol & name, Value & vAttr);
+    // By default, probably calls evalMinimal, checks for it to be WHNF
+
+    // v is empty, evalutes to WHNF
+    //virtual void eval(EvalState & state, Env & env, Value & v);
+
+    // This functions v will be uninitialized, and this function should initialize it to weak head normal form
+    //virtual void evalWHNF(EvalState & state, Env & env, Value & v);
+    // ^ Abort for Expr itself
+
+    // Evaluates the two values of a tPartialBinop returned from a previous partial evaluation
+    // Both left and right will be in WHNF already, v will be empty and needs to be initialized
+    //virtual void evalBinOpWHNF(EvalState & state, Env & env, const Value & left, const Value & right, Value & v);
+    // ^ Abort for Expr itself, but will also only be called if an evalAttr returned a tPartialBinop
+
+    // This functions v will be uninitialized, and it should turn it into either normal form or a partial thunk
+    //virtual bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr);
+    // ^ By default an evalWHNF followed by an evalValueAttr
+
+    // Called if a previous evalAttr returned a tPartialBinOp, with the values of that binOp. This function can modify left and right, and if it turns them both to normal form, evalBinOpWHNF is called on them one last time
+    // Should return the attribute name `name' of the expression into `vAttr'
+    //virtual bool evalBinOpAttr(EvalState & state, Env & env, Value & left, Value & right, const Symbol & name, Value & vAttr);
+
+    //virtual bool createPartialBinOp
+    //
+    // Binary operations could do with:
+    // - mkPartialBinOp: Returns thunks for left and right values, which then get put into a tPartialBinOp
+    // - evalBinOpWHNF
+    //
+
+
+    /* LazyBinOp:
+     * - evalSubexprsIntoValues: Turns the expression into left and right Values using maybeThunk
+     * - evalBinOpAttr: Takes the left and right Values, and returns an attribute name from them
+     * - evalBinOpWHNF: Takes the left and right Values in WHNF and combines them into a WHNF result
+     *
+     * evalWHNF can be implemented with:
+     * - evalSubexprsIntoValues
+     * - evaluating left and right into WHNF
+     * - evalBinOpWHNF
+     */
+
+    /* Getting an attribute of a non-LazyBinOp?
+     */
+
+    // Evaluate into WHNF, can only be called once, v could be empty or tPartialBinOp
+    //virtual void evalWHNF(EvalState & state, Env & env, Value & v);
+    // By default, checks if v is empty or tPartialBinOp:
+    // - If empty, call standard eval
+    // - If tPartialBinOp, evaluate left and right into WHNF, then call evalBinOpWHNF with them
+
+    // Get an attribute, could be called multiple times, v could be empty or tPartialBinOp
+    //virtual bool evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name, Value & vAttr);
+    // By default checks if v is empty or tPartialBinOp:
+    // - If empty, eval, then evalValueAttr
+    // - If tPartialBinOp, evalBinOpAttr
+
+
+    // For lists: evalIndex, evalIndexPartialThunk
+    // For strings: evalSubstring, evalSubstringPartialThunk
+
     virtual Value * maybeThunk(EvalState & state, Env & env);
     virtual void setName(Symbol & name);
+};
+
+struct ExprLazyBinOp : Expr
+{
+    virtual void evalMinimal(EvalState & state, Env & env, Value & v)
+    {
+        v.type = tPartialBinOp;
+        v.partialBinOp.expr = this;
+        v.partialBinOp.env = env;
+    }
+
+    // Fills in empty v's with left and right minimal evals
+    //virtual void evalMinimalLeft(EvalState & state, Env & env, Value & v);
+    //virtual void evalMinimalRight(EvalState & state, Env & env, Value & v);
+    //virtual void toPartialBinOp(EvalState & state, Env & env, Value & left, Value & right);
+
+    // This functions v will be uninitialized, and this function should initialize it to weak head normal form
+    //virtual void evalWHNF(EvalState & state, Env & env, Value & v);
+    // ^ Abort for Expr itself
+
+    // Evaluates the two values of a tPartialBinop returned from a previous partial evaluation
+    // Both left and right will be in WHNF already, v will be empty and needs to be initialized
+    //virtual void evalPartialBinOpWHNF(EvalState & state, Env & env, const Value & left, const Value & right, Value & v);
+    // ^ Abort for Expr itself, but will also only be called if an evalAttr returned a tPartialBinop
+
+    // This functions v will be uninitialized, and it should turn it into either normal form or a partial thunk
+    //virtual bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr);
+    // ^ By default an evalWHNF followed by an evalValueAttr
+
+    // Called if a previous evalAttr returned a tPartialBinOp, with the values of that binOp. This function can modify left and right, and if it turns them both to normal form, evalBinOpWHNF is called on them one last time
+    // Should return the attribute name `name' of the expression into `vAttr'
+
+    // Evaluates an attribute of this expression. left and right have been filled in with evalMinimals of the respective values
+    virtual bool evalMinimalAttr(EvalState & state, Env & env, Value * left, Value * right, const Symbol & name, Value & vAttr);
+    // Evaluates it to WHNF
+    virtual void evalBinOp(EvalState & state, Env & env, Value * left, Value * right, Value & v);
 };
 
 std::ostream & operator << (std::ostream & str, const Expr & e);
@@ -341,8 +452,7 @@ struct ExprApp : Expr
     bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr);
 };
 
-
-struct ExprOpUpdate : Expr
+struct ExprOpUpdate : ExprLazyBinOp
 {
     Pos pos;
     Expr * e1, * e2;
@@ -356,8 +466,7 @@ struct ExprOpUpdate : Expr
     {
         e1->bindVars(env); e2->bindVars(env);
     }
-    void eval(EvalState & state, Env & env, Value & v);
-    bool evalAttr(EvalState & state, Env & env, const Symbol & name, Value & v, Value & vAttr);
+    bool evalMinimalAttr(EvalState & state, Env & env, Value & left, Value & right, const Symbol & name, Value & vAttr);
 };
 
 struct ExprConcatStrings : Expr

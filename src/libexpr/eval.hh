@@ -190,6 +190,13 @@ public:
        result.  Otherwise, this is a no-op. */
     inline void forceValue(Value & v, const Pos & pos = noPos);
 
+    /* Evaluates attribute `name' of `v', storing the result in `vAttr',
+     * potentially modifying `v' in the process. Returns whether the attribute
+     * existed. If it doesn't, vAttr won't be modified. `vAttr' won't
+     * necessarily be in WHNF.
+     */
+    inline bool evalValueAttr(Value & v, const Symbol & name, Value & vAttr, const Pos & pos = noPos);
+
     /* Force a value, then recursively force list elements and
        attributes. */
     void forceValueDeep(Value & v);
