@@ -27,7 +27,8 @@ typedef enum {
     tPrimOpApp,
     tExternal,
     tFloat,
-    tLazyBinOp
+    tLazyBinOp,
+    tValue
 } ValueType;
 
 
@@ -159,6 +160,7 @@ struct Value
         } primOpApp;
         ExternalValueBase * external;
         NixFloat fpoint;
+        Value * value;
     };
 
     bool isList() const

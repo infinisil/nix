@@ -191,6 +191,9 @@ public:
     /* Get an attribute of a value, or null if it doesn't exist */
     inline Attr * evalValueAttr(Value & v, const Symbol & name, const Pos & pos = noPos);
 
+
+    inline void evalValueMinimal(Value & v, const Pos & pos = noPos);
+
     /* Force a value, then recursively force list elements and
        attributes. */
     void forceValueDeep(Value & v);
@@ -287,6 +290,7 @@ public:
 
     Attr * callFunctionAttr(Value & fun, Value & arg, Value & v, const Symbol & name, const Pos & pos);
     void callFunction(Value & fun, Value & arg, Value & v, const Pos & pos);
+    void callFunctionMinimal(Value & fun, Value & arg, Value & v, const Pos & pos);
     void callPrimOp(Value & fun, Value & arg, Value & v, const Pos & pos);
 
     /* Automatically call a function for which each argument has a

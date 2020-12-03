@@ -32,6 +32,18 @@ LocalNoInlineNoReturn(void throwTypeError(const Pos & pos, const char * s, const
 
 void EvalState::forceValue(Value & v, const Pos & pos)
 {
+    evalValueMinimal(v, pos);
+    if (v.type == tLazyBinOp) {
+        v.lazyBinOp->expr->evalLazyBinOp(*this, *v.lazyBinOp->env, v);
+    } else if (v.type == tValue) {
+        v.type = tBlackhole;
+        forceValue(*v.value, pos);
+        v = *v.value;
+    }
+}
+
+void EvalState::evalValueMinimal(Value & v, const Pos & pos)
+{
     if (v.type == tThunk) {
         Env * env = v.thunk.env;
         Expr * expr = v.thunk.expr;
@@ -44,49 +56,38 @@ void EvalState::forceValue(Value & v, const Pos & pos)
             // Which means that the infinite recursion detection from this forceValue is prevented, since the tBlackhole is unset before the potentially recursive evaluations
             v.type = tBlackhole;
             //checkInterrupt();
-            expr->eval(*this, *env, v);
+            expr->evalMinimal(*this, *env, v);
         } catch (...) {
             v.type = tThunk;
             v.thunk.env = env;
             v.thunk.expr = expr;
             throw;
         }
+    } else if (v.type == tApp) {
+        callFunctionMinimal(*v.app.left, *v.app.right, v, pos);
+    } else if (v.type == tBlackhole) {
+        throwEvalError(pos, "infinite recursion encountered (tBlackhole in evalValueAttr)");
     }
-    else if (v.type == tLazyBinOp) {
-        // TODO: Inf rec detection here?
-        // Not needed because the only things a lazy bin op evaluates is its
-        // left and right side, which are already detected for infinite
-        // recursion separately
-        v.lazyBinOp->expr->evalLazyBinOp(*this, *v.lazyBinOp->env, v);
-    }
-    else if (v.type == tApp)
-        callFunction(*v.app.left, *v.app.right, v, noPos);
-    else if (v.type == tBlackhole)
-        throwEvalError(pos, "infinite recursion encountered (tBlackhole in forceValue)");
 }
 
 Attr * EvalState::evalValueAttr(Value & v, const Symbol & name, const Pos & pos)
 {
-
     // No need to set tBlackhole's here, because evaluating attributes of values doesn't require evaluation, and inf rec within lazyBinOps is handled by them directly
 
-    switch (v.type) {
-        case tThunk:
-            return v.thunk.expr->evalAttr(*this, *v.thunk.env, v, name);
-        case tLazyBinOp:
-            return v.lazyBinOp->expr->evalLazyBinOpAttr(*this, *v.lazyBinOp->env, name, v);
-        case tApp:
-            return callFunctionAttr(*v.app.left, *v.app.right, v, name, pos);
-        case tAttrs:
-            Bindings::iterator j;
-            if ((j = v.attrs->find(name)) == v.attrs->end()) {
-                return nullptr;
-            }
-            return j;
-        case tBlackhole:
-            throwEvalError(pos, "infinite recursion encountered (tBlackhole in evalValueAttr)");
-        default:
+    evalValueMinimal(v, pos);
+    if (v.type == tAttrs) {
+        Bindings::iterator j;
+        if ((j = v.attrs->find(name)) == v.attrs->end()) {
             return nullptr;
+        }
+        return j;
+    } else if (v.type == tLazyBinOp) {
+        return v.lazyBinOp->expr->evalLazyBinOpAttr(*this, *v.lazyBinOp->env, name, v);
+    } else if (v.type == tValue) {
+        return evalValueAttr(*v.value, name, pos);
+        // TODO: Set v to v.value if it's in WHNF, for efficiency
+    } else {
+        return nullptr;
     }
 }
 

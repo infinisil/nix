@@ -184,6 +184,7 @@ string showType(ValueType type)
         case tExternal: return "an external value";
         case tFloat: return "a float";
         case tLazyBinOp: return "a lazy binop";
+        case tValue: return "a reference to another value";
     }
     abort();
 }
@@ -951,95 +952,54 @@ inline void EvalState::evalAttrs(Env & env, Expr * e, Value & v)
         throwTypeError("value is %1% while a set was expected", v);
 }
 
+void Expr::evalMinimal(EvalState & state, Env & env, Value & v)
+{
+    abort();
+}
 
 void Expr::eval(EvalState & state, Env & env, Value & v)
 {
-    abort();
+    evalMinimal(state, env, v);
+    state.forceValue(v, noPos);
 }
 
 
-Attr * Expr::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
+void ExprLazyBinOp::evalMinimal(EvalState & state, Env & env, Value & v)
 {
-    abort();
-}
-
-
-
-void ExprLazyBinOp::eval(EvalState & state, Env & env, Value & v)
-{
-    initLazyBinOp(state, env, v);
-    evalLazyBinOp(state, env, v);
-}
-
-Attr * ExprLazyBinOp::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    initLazyBinOp(state, env, v);
-    return evalLazyBinOpAttr(state, env, name, v);
-}
-
-void ExprLazyBinOp::initLazyBinOp(EvalState & state, Env & env, Value & v)
-{
-    printError("ExprLazyBinOp::initLazyBinOp called!");
-    abort();
-}
-
-Attr * ExprLazyBinOp::evalLazyBinOpAttr(EvalState & state, Env & env, const Symbol & name, Value & v)
-{
-    printError("ExprLazyBinOp::evalLazyBinOpAttr called!");
     abort();
 }
 
 void ExprLazyBinOp::evalLazyBinOp(EvalState & state, Env & env, Value & v)
 {
-    printError("ExprLazyBinOp::evalLazyBinOp called!");
     abort();
 }
 
-void ExprInt::eval(EvalState & state, Env & env, Value & v)
+Attr * ExprLazyBinOp::evalLazyBinOpAttr(EvalState & state, Env & env, const Symbol & name, Value & v)
+{
+    abort();
+}
+
+void ExprInt::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     v = this->v;
 }
 
-Attr * ExprInt::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    eval(state, env, v);
-    return nullptr;
-}
-
-void ExprFloat::eval(EvalState & state, Env & env, Value & v)
+void ExprFloat::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     v = this->v;
 }
 
-Attr * ExprFloat::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    eval(state, env, v);
-    return nullptr;
-}
-
-void ExprString::eval(EvalState & state, Env & env, Value & v)
+void ExprString::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     v = this->v;
 }
 
-Attr * ExprString::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    eval(state, env, v);
-    return nullptr;
-}
-
-void ExprPath::eval(EvalState & state, Env & env, Value & v)
+void ExprPath::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     v = this->v;
 }
 
-Attr * ExprPath::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    eval(state, env, v);
-    return nullptr;
-}
-
-void ExprAttrs::eval(EvalState & state, Env & env, Value & v)
+void ExprAttrs::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     state.mkAttrs(v, attrs.size() + dynamicAttrs.size());
     Env *dynamicEnv = &env;
@@ -1120,14 +1080,7 @@ void ExprAttrs::eval(EvalState & state, Env & env, Value & v)
     }
 }
 
-
-Attr * ExprAttrs::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    eval(state, env, v);
-    return state.evalValueAttr(v, name);
-}
-
-void ExprLet::eval(EvalState & state, Env & env, Value & v)
+void ExprLet::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     /* Create a new environment that contains the attributes in this
        `let'. */
@@ -1141,54 +1094,21 @@ void ExprLet::eval(EvalState & state, Env & env, Value & v)
     for (auto & i : attrs->attrs)
         env2.values[displ++] = i.second.e->maybeThunk(state, i.second.inherited ? env : env2);
 
-    body->eval(state, env2, v);
+    body->evalMinimal(state, env2, v);
 }
 
-// TODO: Deduplicate with above method
-Attr * ExprLet::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    /* Create a new environment that contains the attributes in this
-       `let'. */
-    Env & env2(state.allocEnv(attrs->attrs.size()));
-    env2.up = &env;
-
-    /* The recursive attributes are evaluated in the new environment,
-       while the inherited attributes are evaluated in the original
-       environment. */
-    size_t displ = 0;
-    for (auto & i : attrs->attrs)
-        env2.values[displ++] = i.second.e->maybeThunk(state, i.second.inherited ? env : env2);
-
-    return body->evalAttr(state, env2, v, name);
-}
-
-void ExprList::eval(EvalState & state, Env & env, Value & v)
+void ExprList::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     state.mkList(v, elems.size());
     for (size_t n = 0; n < elems.size(); ++n)
         v.listElems()[n] = elems[n]->maybeThunk(state, env);
 }
 
-Attr * ExprList::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
+void ExprVar::evalMinimal(EvalState & state, Env & env, Value & v)
 {
-    eval(state, env, v);
-    return nullptr;
-}
-
-void ExprVar::eval(EvalState & state, Env & env, Value & v)
-{
-    Value * v2 = state.lookupVar(&env, *this, false);
-    state.forceValue(*v2, pos);
-    v = *v2;
-}
-
-
-Attr * ExprVar::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    Value * v2 = state.lookupVar(&env, *this, false);
-    Attr * result = state.evalValueAttr(*v2, name, pos);
-    v = *v2;
-    return result;
+    v.type = tValue;
+    v.value = state.lookupVar(&env, *this, false);
+    state.evalValueMinimal(*v.value, pos);
 }
 
 static string showAttrPath(EvalState & state, Env & env, const AttrPath & attrPath)
@@ -1210,41 +1130,16 @@ static string showAttrPath(EvalState & state, Env & env, const AttrPath & attrPa
 
 unsigned long nrLookups = 0;
 
-void ExprSelect::eval(EvalState & state, Env & env, Value & v)
+void ExprSelect::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     // TODO: Probably use pos2 throughout this function
     Pos * pos2 = 0;
 
-    Value vTmp;
-    Value * vAttrs = &vTmp;
+    Value * vAttrs = e->maybeThunk(state, env);
 
     try {
 
         auto i = attrPath.begin();
-
-        // In the first loop iteration, we evaluate an attribute of an Expr, and not a Value
-        // So by unrolling this, we can avoid a thunk allocation by using e->evalAttr instead of evalValueAttr
-        nrLookups++;
-        Symbol name = getName(*i, state, env);
-        Attr * attr = e->evalAttr(state, env, *vAttrs, name);
-        if (!attr) {
-            if (def) {
-                def->eval(state, env, v);
-                return;
-            } else {
-                // Depending on the reason of j being null we throw an error
-                // If it wasn't an attribute set, this should trigger
-                state.forceAttrs(*vAttrs, pos);
-                // Otherwise the attribute set will have missed the name we wanted
-                throwEvalError(pos, "attribute '%1%' missing", name);
-            }
-        }
-        vAttrs = attr->value;
-        pos2 = attr->pos;
-        if (state.countCalls && pos2) state.attrSelects[*pos2]++;
-
-        ++i;
-
 
         for (;i < attrPath.end(); ++i) {
             nrLookups++;
@@ -1252,7 +1147,7 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
             Attr * attr = state.evalValueAttr(*vAttrs, name, pos);
             if (!attr) {
                 if (def) {
-                    def->eval(state, env, v);
+                    def->evalMinimal(state, env, v);
                     return;
                 } else {
                     // Depending on the reason of j being null we throw an error
@@ -1274,80 +1169,14 @@ void ExprSelect::eval(EvalState & state, Env & env, Value & v)
         throw;
     }
 
-    state.forceValue(*vAttrs, ( pos2 != NULL ? *pos2 : this->pos ));
-    v = *vAttrs;
+    v.type = tValue;
+    v.value = vAttrs;
+    state.evalValueMinimal(*vAttrs, ( pos2 != NULL ? *pos2 : this->pos ));
 }
 
-// TODO: Could this be combined with above method?
-Attr * ExprSelect::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    Pos * pos2 = 0;
-    Value vTmp;
-    Value * vAttrs = &vTmp;
-
-    try {
-
-        auto i = attrPath.begin();
-
-        // In the first loop iteration, we evaluate an attribute of an Expr, and not a Value
-        // So by unrolling this, we can avoid a thunk allocation by using e->evalAttr instead of evalValueAttr
-        nrLookups++;
-        Symbol name2 = getName(*i, state, env);
-        Attr * attr = e->evalAttr(state, env, *vAttrs, name2);
-        if (!attr) {
-            if (def) {
-                return def->evalAttr(state, env, v, name);
-            } else {
-                // Depending on the reason of j being null we throw an error
-                // If it wasn't an attribute set, this should trigger
-                state.forceAttrs(*vAttrs, pos);
-                // Otherwise the attribute set will have missed the name we wanted
-                throwEvalError(pos, "attribute '%1%' missing", name);
-            }
-        }
-        vAttrs = attr->value;
-        pos2 = attr->pos;
-        if (state.countCalls && pos2) state.attrSelects[*pos2]++;
-
-        ++i;
-
-        for (;i < attrPath.end(); ++i) {
-            nrLookups++;
-            Symbol name2 = getName(*i, state, env);
-            Attr * attr = state.evalValueAttr(*vAttrs, name2, pos);
-            if (!attr) {
-                if (def) {
-                    return def->evalAttr(state, env, v, name);
-                } else {
-                    // Depending on the reason of j being null we throw an error
-                    // If it wasn't an attribute set, this should trigger
-                    state.forceAttrs(*vAttrs, pos);
-                    // Otherwise the attribute set will have missed the name we wanted
-                    throwEvalError(pos, "attribute '%1%' missing", name2);
-                }
-            }
-            vAttrs = attr->value;
-            pos2 = attr->pos;
-            if (state.countCalls && pos2) state.attrSelects[*pos2]++;
-        }
-
-    } catch (Error & e) {
-        if (pos2 && pos2->file != state.sDerivationNix)
-            addErrorTrace(e, *pos2, "while evaluating the attribute '%1%'",
-                showAttrPath(state, env, attrPath));
-        throw;
-    }
-
-
-    Attr * result = state.evalValueAttr(*vAttrs, name, ( pos2 != NULL ? *pos2 : this->pos ));
-
-    v = *vAttrs;
-
-    return result;
-}
 
 // TODO: Use evalValueAttr to make this lazy, like ExprSelect
-void ExprOpHasAttr::eval(EvalState & state, Env & env, Value & v)
+void ExprOpHasAttr::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     Value vTmp;
     Value * vAttrs = &vTmp;
@@ -1371,41 +1200,22 @@ void ExprOpHasAttr::eval(EvalState & state, Env & env, Value & v)
     mkBool(v, true);
 }
 
-Attr * ExprOpHasAttr::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    printError("ExprSelect::evalAttr not implemented yet");
-    abort();
-}
-
-void ExprLambda::eval(EvalState & state, Env & env, Value & v)
+void ExprLambda::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     v.type = tLambda;
     v.lambda.env = &env;
     v.lambda.fun = this;
 }
 
-Attr * ExprLambda::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    eval(state, env, v);
-    return nullptr;
-}
-
-void ExprApp::eval(EvalState & state, Env & env, Value & v)
+void ExprApp::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     /* FIXME: vFun prevents GCC from doing tail call optimisation. */
     Value vFun;
     e1->eval(state, env, vFun);
-    state.callFunction(vFun, *(e2->maybeThunk(state, env)), v, pos);
+    state.callFunctionMinimal(vFun, *(e2->maybeThunk(state, env)), v, pos);
 }
 
-Attr * ExprApp::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    /* FIXME: vFun prevents GCC from doing tail call optimisation. */
-    Value vFun;
-    e1->eval(state, env, vFun);
-    return state.callFunctionAttr(vFun, *(e2->maybeThunk(state, env)), v, name, pos);
-}
-
+// TODO: Minimal version
 void EvalState::callPrimOp(Value & fun, Value & arg, Value & v, const Pos & pos)
 {
     /* Figure out the number of arguments still needed. */
@@ -1444,6 +1254,13 @@ void EvalState::callPrimOp(Value & fun, Value & arg, Value & v, const Pos & pos)
 
 void EvalState::callFunction(Value & fun, Value & arg, Value & v, const Pos & pos)
 {
+    callFunctionMinimal(fun, arg, v, pos);
+    // TODO: This forceValue also calls another minimal eval within, problably a small abstraction mismatch
+    forceValue(v, pos);
+}
+
+void EvalState::callFunctionMinimal(Value & fun, Value & arg, Value & v, const Pos & pos)
+{
     auto trace = evalSettings.traceFunctionCalls ? std::make_unique<FunctionCallTrace>(pos) : nullptr;
 
     forceValue(fun, pos);
@@ -1465,7 +1282,7 @@ void EvalState::callFunction(Value & fun, Value & arg, Value & v, const Pos & po
         /* !!! Should we use the attr pos here? */
         Value v2;
         callFunction(*found->value, fun2, v2, pos);
-        return callFunction(v2, arg, v, pos);
+        return callFunctionMinimal(v2, arg, v, pos);
       }
     }
 
@@ -1526,7 +1343,7 @@ void EvalState::callFunction(Value & fun, Value & arg, Value & v, const Pos & po
        catching exceptions makes this function not tail-recursive. */
     if (loggerSettings.showTrace.get())
         try {
-            lambda.body->eval(*this, env2, v);
+            lambda.body->evalMinimal(*this, env2, v);
         } catch (Error & e) {
             addErrorTrace(e, lambda.pos, "while evaluating %s",
               (lambda.name.set()
@@ -1536,106 +1353,9 @@ void EvalState::callFunction(Value & fun, Value & arg, Value & v, const Pos & po
             throw;
         }
     else
-        fun.lambda.fun->body->eval(*this, env2, v);
+        fun.lambda.fun->body->evalMinimal(*this, env2, v);
 }
 
-// TODO: Deduplicate code with above method
-Attr * EvalState::callFunctionAttr(Value & fun, Value & arg, Value & v, const Symbol & name, const Pos & pos)
-{
-    auto trace = evalSettings.traceFunctionCalls ? std::make_unique<FunctionCallTrace>(pos) : nullptr;
-
-    forceValue(fun, pos);
-
-    if (fun.type == tPrimOp || fun.type == tPrimOpApp) {
-        callPrimOp(fun, arg, v, pos);
-        return evalValueAttr(v, name, pos);
-    }
-
-    if (fun.type == tAttrs) {
-      auto found = fun.attrs->find(sFunctor);
-      if (found != fun.attrs->end()) {
-        /* fun may be allocated on the stack of the calling function,
-         * but for functors we may keep a reference, so heap-allocate
-         * a copy and use that instead.
-         */
-        auto & fun2 = *allocValue();
-        fun2 = fun;
-        /* !!! Should we use the attr pos here? */
-        Value v2;
-        callFunction(*found->value, fun2, v2, pos);
-        return callFunctionAttr(v2, arg, v, name, pos);
-      }
-    }
-
-    if (fun.type != tLambda)
-        throwTypeError(pos, "attempt to call something which is not a function but %1%", fun);
-
-    ExprLambda & lambda(*fun.lambda.fun);
-
-    auto size =
-        (lambda.arg.empty() ? 0 : 1) +
-        (lambda.matchAttrs ? lambda.formals->formals.size() : 0);
-    Env & env2(allocEnv(size));
-    env2.up = fun.lambda.env;
-
-    size_t displ = 0;
-
-    if (!lambda.matchAttrs)
-        env2.values[displ++] = &arg;
-
-    else {
-        forceAttrs(arg, pos);
-
-        if (!lambda.arg.empty())
-            env2.values[displ++] = &arg;
-
-        /* For each formal argument, get the actual argument.  If
-           there is no matching actual argument but the formal
-           argument has a default, use the default. */
-        size_t attrsUsed = 0;
-        for (auto & i : lambda.formals->formals) {
-            Bindings::iterator j = arg.attrs->find(i.name);
-            if (j == arg.attrs->end()) {
-                if (!i.def) throwTypeError(pos, "%1% called without required argument '%2%'",
-                    lambda, i.name);
-                env2.values[displ++] = i.def->maybeThunk(*this, env2);
-            } else {
-                attrsUsed++;
-                env2.values[displ++] = j->value;
-            }
-        }
-
-        /* Check that each actual argument is listed as a formal
-           argument (unless the attribute match specifies a `...'). */
-        if (!lambda.formals->ellipsis && attrsUsed != arg.attrs->size()) {
-            /* Nope, so show the first unexpected argument to the
-               user. */
-            for (auto & i : *arg.attrs)
-                if (lambda.formals->argNames.find(i.name) == lambda.formals->argNames.end())
-                    throwTypeError(pos, "%1% called with unexpected argument '%2%'", lambda, i.name);
-            abort(); // can't happen
-        }
-    }
-
-    nrFunctionCalls++;
-    if (countCalls) incrFunctionCall(&lambda);
-
-    /* Evaluate the body.  This is conditional on showTrace, because
-       catching exceptions makes this function not tail-recursive. */
-    if (loggerSettings.showTrace.get())
-        try {
-            return lambda.body->evalAttr(*this, env2, v, name);
-        } catch (Error & e) {
-            addErrorTrace(e, lambda.pos, "while evaluating %s",
-              (lambda.name.set()
-                  ? "'" + (string) lambda.name + "'"
-                  : "anonymous lambda"));
-            addErrorTrace(e, pos, "from call site%s", "");
-            throw;
-        }
-    else
-        return fun.lambda.fun->body->evalAttr(*this, env2, v, name);
-}
 
 // Lifted out of callFunction() because it creates a temporary that
 // prevents tail-call optimisation.
@@ -1692,7 +1412,7 @@ void EvalState::autoCallFunction(Bindings & args, Value & fun, Value & res)
 }
 
 
-void ExprWith::eval(EvalState & state, Env & env, Value & v)
+void ExprWith::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     Env & env2(state.allocEnv(1));
     env2.up = &env;
@@ -1700,122 +1420,56 @@ void ExprWith::eval(EvalState & state, Env & env, Value & v)
     env2.type = Env::HasWithExpr;
     env2.values[0] = (Value *) attrs;
 
-    body->eval(state, env2, v);
+    body->evalMinimal(state, env2, v);
 }
 
-Attr * ExprWith::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
+void ExprIf::evalMinimal(EvalState & state, Env & env, Value & v)
 {
-
-    // TODO: Deduplicate
-    Env & env2(state.allocEnv(1));
-    env2.up = &env;
-    env2.prevWith = prevWith;
-    env2.type = Env::HasWithExpr;
-    env2.values[0] = (Value *) attrs;
-
-    return body->evalAttr(state, env2, v, name);
+    (state.evalBool(env, cond, pos) ? then : else_)->evalMinimal(state, env, v);
 }
 
-void ExprIf::eval(EvalState & state, Env & env, Value & v)
-{
-    (state.evalBool(env, cond, pos) ? then : else_)->eval(state, env, v);
-}
-
-Attr * ExprIf::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-
-    return (state.evalBool(env, cond, pos) ? then : else_)->evalAttr(state, env, v, name);
-}
-
-void ExprAssert::eval(EvalState & state, Env & env, Value & v)
+void ExprAssert::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     if (!state.evalBool(env, cond, pos)) {
         std::ostringstream out;
         cond->show(out);
         throwAssertionError(pos, "assertion '%1%' failed at %2%", out.str());
     }
-    body->eval(state, env, v);
+    body->evalMinimal(state, env, v);
 }
 
-Attr * ExprAssert::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    // TODO: Maybe deduplicate with above method
-    if (!state.evalBool(env, cond, pos)) {
-        std::ostringstream out;
-        cond->show(out);
-        throwAssertionError(pos, "assertion '%1%' failed at %2%", out.str());
-    }
-    return body->evalAttr(state, env, v, name);
-}
-
-void ExprOpNot::eval(EvalState & state, Env & env, Value & v)
+void ExprOpNot::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     mkBool(v, !state.evalBool(env, e));
 }
 
-Attr * ExprOpNot::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    eval(state, env, v);
-    return nullptr;
-}
-
-void ExprOpEq::eval(EvalState & state, Env & env, Value & v)
+void ExprOpEq::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     Value v1; e1->eval(state, env, v1);
     Value v2; e2->eval(state, env, v2);
     mkBool(v, state.eqValues(v1, v2));
 }
 
-Attr * ExprOpEq::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    eval(state, env, v);
-    return nullptr;
-}
-
-void ExprOpNEq::eval(EvalState & state, Env & env, Value & v)
+void ExprOpNEq::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     Value v1; e1->eval(state, env, v1);
     Value v2; e2->eval(state, env, v2);
     mkBool(v, !state.eqValues(v1, v2));
 }
 
-Attr * ExprOpNEq::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    eval(state, env, v);
-    return nullptr;
-}
-
-void ExprOpAnd::eval(EvalState & state, Env & env, Value & v)
+void ExprOpAnd::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     mkBool(v, state.evalBool(env, e1, pos) && state.evalBool(env, e2, pos));
 }
 
-Attr * ExprOpAnd::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    eval(state, env, v);
-    return nullptr;
-}
-
-void ExprOpOr::eval(EvalState & state, Env & env, Value & v)
+void ExprOpOr::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     mkBool(v, state.evalBool(env, e1, pos) || state.evalBool(env, e2, pos));
 }
 
-Attr * ExprOpOr::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    eval(state, env, v);
-    return nullptr;
-}
-
-void ExprOpImpl::eval(EvalState & state, Env & env, Value & v)
+void ExprOpImpl::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     mkBool(v, !state.evalBool(env, e1, pos) || state.evalBool(env, e2, pos));
-}
-
-Attr * ExprOpImpl::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    eval(state, env, v);
-    return nullptr;
 }
 
 void ExprOpUpdate::updateAttrs(EvalState & state, const Value & v1, const Value & v2, Value & v)
@@ -1849,8 +1503,7 @@ void ExprOpUpdate::updateAttrs(EvalState & state, const Value & v1, const Value 
     state.nrOpUpdateValuesCopied += v.attrs->size();
 }
 
-
-void ExprOpUpdate::initLazyBinOp(EvalState & state, Env & env, Value & v)
+void ExprOpUpdate::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     v.type = tLazyBinOp;
     // TODO Try to remove this allocation if not necessary
@@ -1859,9 +1512,6 @@ void ExprOpUpdate::initLazyBinOp(EvalState & state, Env & env, Value & v)
     v.lazyBinOp->env = &env;
     v.lazyBinOp->left = e1->maybeThunk(state, env);
     v.lazyBinOp->right = e2->maybeThunk(state, env);
-    // Memory will be initialized with 0 already
-    //v.lazyBinOp->leftBlackhole = false;
-    //v.lazyBinOp->rightBlackhole = false;
 }
 
 void ExprOpUpdate::evalLazyBinOp(EvalState & state, Env & env, Value & v)
@@ -1883,6 +1533,7 @@ void ExprOpUpdate::evalLazyBinOp(EvalState & state, Env & env, Value & v)
 
     updateAttrs(state, *v.lazyBinOp->left, *v.lazyBinOp->right, v);
 }
+
 
 // This function is called with a v that may have a tLazyBinOp in it, meaning
 // that a previous invocation of this function returned a tLazyBinOp, and this
@@ -1917,19 +1568,12 @@ Attr * ExprOpUpdate::evalLazyBinOpAttr(EvalState & state, Env & env, const Symbo
 
 
 
-void ExprOpConcatLists::eval(EvalState & state, Env & env, Value & v)
+void ExprOpConcatLists::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     Value v1; e1->eval(state, env, v1);
     Value v2; e2->eval(state, env, v2);
     Value * lists[2] = { &v1, &v2 };
     state.concatLists(v, 2, lists, pos);
-}
-
-Attr * ExprOpConcatLists::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    // TODO: Maybe return nullptr without fully evaluating the list for lazy concats?
-    eval(state, env, v);
-    return nullptr;
 }
 
 void EvalState::concatLists(Value & v, size_t nrLists, Value * * lists, const Pos & pos)
@@ -1961,7 +1605,7 @@ void EvalState::concatLists(Value & v, size_t nrLists, Value * * lists, const Po
 }
 
 
-void ExprConcatStrings::eval(EvalState & state, Env & env, Value & v)
+void ExprConcatStrings::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     PathSet context;
     std::ostringstream s;
@@ -2018,21 +1662,9 @@ void ExprConcatStrings::eval(EvalState & state, Env & env, Value & v)
         mkString(v, s.str(), context);
 }
 
-Attr * ExprConcatStrings::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    eval(state, env, v);
-    return nullptr;
-}
-
-void ExprPos::eval(EvalState & state, Env & env, Value & v)
+void ExprPos::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     state.mkPos(v, &pos);
-}
-
-Attr * ExprPos::evalAttr(EvalState & state, Env & env, Value & v, const Symbol & name)
-{
-    eval(state, env, v);
-    return state.evalValueAttr(v, name, pos);
 }
 
 void EvalState::forceValueDeep(Value & v)
