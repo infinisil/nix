@@ -960,7 +960,12 @@ void Expr::evalMinimal(EvalState & state, Env & env, Value & v)
 void Expr::eval(EvalState & state, Env & env, Value & v)
 {
     evalMinimal(state, env, v);
-    state.forceValue(v, noPos);
+    state.forceValue(v, getPos());
+}
+
+Pos Expr::getPos()
+{
+    return noPos;
 }
 
 
@@ -1107,8 +1112,9 @@ void ExprList::evalMinimal(EvalState & state, Env & env, Value & v)
 void ExprVar::evalMinimal(EvalState & state, Env & env, Value & v)
 {
     v.type = tValue;
-    v.value = state.lookupVar(&env, *this, false);
-    state.evalValueMinimal(*v.value, pos);
+    v.value.value = state.lookupVar(&env, *this, false);
+    v.value.pos = &pos;
+    state.evalValueMinimal(*v.value.value, pos);
 }
 
 static string showAttrPath(EvalState & state, Env & env, const AttrPath & attrPath)
@@ -1170,8 +1176,9 @@ void ExprSelect::evalMinimal(EvalState & state, Env & env, Value & v)
     }
 
     v.type = tValue;
-    v.value = vAttrs;
-    state.evalValueMinimal(*vAttrs, ( pos2 != NULL ? *pos2 : this->pos ));
+    v.value.value = vAttrs;
+    v.value.pos = pos2 != NULL ? pos2 : &pos;
+    state.evalValueMinimal(*vAttrs, *v.value.pos);
 }
 
 
@@ -1517,7 +1524,11 @@ void ExprOpUpdate::evalMinimal(EvalState & state, Env & env, Value & v)
 void ExprOpUpdate::evalLazyBinOp(EvalState & state, Env & env, Value & v)
 {
     if (v.lazyBinOp->rightBlackhole) {
-        throwEvalError(pos, "infinite recursion encountered while recursing into the right side of a lazy binop (evalLazyBinOp)");
+        Pos pos2 = e2->getPos();
+        if (pos2 == noPos) {
+            pos2 = pos;
+        }
+        throwEvalError(pos2, "infinite recursion encountered while recursing into the right side of a lazy binop (evalLazyBinOp)");
     }
     v.lazyBinOp->rightBlackhole = true;
     state.forceAttrs(*v.lazyBinOp->right);
@@ -1525,7 +1536,11 @@ void ExprOpUpdate::evalLazyBinOp(EvalState & state, Env & env, Value & v)
 
 
     if (v.lazyBinOp->leftBlackhole) {
-        throwEvalError(pos, "infinite recursion encountered while recursing into the left side of a lazy binop (evalLazyBinOp)");
+        Pos pos2 = e1->getPos();
+        if (pos2 == noPos) {
+            pos2 = pos;
+        }
+        throwEvalError(pos2, "infinite recursion encountered while recursing into the left side of a lazy binop (evalLazyBinOp)");
     }
     v.lazyBinOp->leftBlackhole = true;
     state.forceAttrs(*v.lazyBinOp->left);
@@ -1545,7 +1560,11 @@ Attr * ExprOpUpdate::evalLazyBinOpAttr(EvalState & state, Env & env, const Symbo
      */
 
     if (v.lazyBinOp->rightBlackhole) {
-        throwEvalError(pos, "infinite recursion encountered while recursing into the right side of a lazy binop");
+        Pos pos2 = e2->getPos();
+        if (pos2 == noPos) {
+            pos2 = pos;
+        }
+        throwEvalError(pos2, "infinite recursion encountered while recursing into the right side of a lazy binop");
     }
     v.lazyBinOp->rightBlackhole = true;
     Attr * onRight = state.evalValueAttr(*v.lazyBinOp->right, name, pos);
@@ -1555,7 +1574,11 @@ Attr * ExprOpUpdate::evalLazyBinOpAttr(EvalState & state, Env & env, const Symbo
     };
 
     if (v.lazyBinOp->leftBlackhole) {
-        throwEvalError(pos, "infinite recursion encountered while recursing into the left side of a lazy binop");
+        Pos pos2 = e1->getPos();
+        if (pos2 == noPos) {
+            pos2 = pos;
+        }
+        throwEvalError(pos2, "infinite recursion encountered while recursing into the left side of a lazy binop");
     }
     v.lazyBinOp->leftBlackhole = true;
     Attr * onLeft = state.evalValueAttr(*v.lazyBinOp->left, name, pos);

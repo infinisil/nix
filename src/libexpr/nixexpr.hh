@@ -78,6 +78,7 @@ string showAttrPath(const AttrPath & attrPath);
 struct Expr
 {
     virtual ~Expr() { };
+    virtual Pos getPos();
     virtual void show(std::ostream & str) const;
     virtual void bindVars(const StaticEnv & env);
     virtual void evalMinimal(EvalState & state, Env & env, Value & v);
@@ -178,6 +179,7 @@ struct ExprVar : Expr
     ExprVar(const Symbol & name) : name(name) { };
     ExprVar(const Pos & pos, const Symbol & name) : pos(pos), name(name) { };
     COMMON_METHODS
+    Pos getPos() { return pos; }
     Value * noAllocationValue(EvalState & state, Env & env);
 };
 
@@ -188,6 +190,7 @@ struct ExprSelect : Expr
     AttrPath attrPath;
     ExprSelect(const Pos & pos, Expr * e, const AttrPath & attrPath, Expr * def) : pos(pos), e(e), def(def), attrPath(attrPath) { };
     ExprSelect(const Pos & pos, Expr * e, const Symbol & name) : pos(pos), e(e), def(0) { attrPath.push_back(AttrName(name)); };
+    Pos getPos() { return pos; }
     COMMON_METHODS
 };
 
@@ -267,6 +270,7 @@ struct ExprLambda : Expr
     };
     void setName(Symbol & name);
     string showNamePos() const;
+    Pos getPos() { return pos; }
     COMMON_METHODS
 };
 
@@ -284,6 +288,7 @@ struct ExprWith : Expr
     Expr * attrs, * body;
     size_t prevWith;
     ExprWith(const Pos & pos, Expr * attrs, Expr * body) : pos(pos), attrs(attrs), body(body) { };
+    Pos getPos() { return pos; }
     COMMON_METHODS
 };
 
@@ -292,6 +297,7 @@ struct ExprIf : Expr
     Pos pos;
     Expr * cond, * then, * else_;
     ExprIf(const Pos & pos, Expr * cond, Expr * then, Expr * else_) : pos(pos), cond(cond), then(then), else_(else_) { };
+    Pos getPos() { return pos; }
     COMMON_METHODS
 };
 
@@ -300,6 +306,7 @@ struct ExprAssert : Expr
     Pos pos;
     Expr * cond, * body;
     ExprAssert(const Pos & pos, Expr * cond, Expr * body) : pos(pos), cond(cond), body(body) { };
+    Pos getPos() { return pos; }
     COMMON_METHODS
 };
 
@@ -326,6 +333,7 @@ struct ExprOpNot : Expr
             e1->bindVars(env); e2->bindVars(env); \
         } \
         void evalMinimal(EvalState & state, Env & env, Value & v); \
+        Pos getPos() { return pos; } \
     };
 
 MakeBinOp(ExprApp, "")
@@ -360,6 +368,7 @@ struct ExprOpUpdate : ExprLazyBinOp
     Attr * evalLazyBinOpAttr(EvalState & state, Env & env, const Symbol & name, Value & v);
 
     void updateAttrs(EvalState & state, const Value & v1, const Value & v2, Value & v);
+    Pos getPos() { return pos; }
 };
 
 struct ExprConcatStrings : Expr
@@ -369,6 +378,7 @@ struct ExprConcatStrings : Expr
     vector<Expr *> * es;
     ExprConcatStrings(const Pos & pos, bool forceString, vector<Expr *> * es)
         : pos(pos), forceString(forceString), es(es) { };
+    Pos getPos() { return pos; }
     COMMON_METHODS
 };
 
@@ -376,6 +386,7 @@ struct ExprPos : Expr
 {
     Pos pos;
     ExprPos(const Pos & pos) : pos(pos) { };
+    Pos getPos() { return pos; }
     COMMON_METHODS
 };
 

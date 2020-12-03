@@ -37,8 +37,8 @@ void EvalState::forceValue(Value & v, const Pos & pos)
         v.lazyBinOp->expr->evalLazyBinOp(*this, *v.lazyBinOp->env, v);
     } else if (v.type == tValue) {
         v.type = tBlackhole;
-        forceValue(*v.value, pos);
-        v = *v.value;
+        forceValue(*v.value.value, pos != noPos ? pos : *v.value.pos);
+        v = *v.value.value;
     }
 }
 
@@ -84,8 +84,11 @@ Attr * EvalState::evalValueAttr(Value & v, const Symbol & name, const Pos & pos)
     } else if (v.type == tLazyBinOp) {
         return v.lazyBinOp->expr->evalLazyBinOpAttr(*this, *v.lazyBinOp->env, name, v);
     } else if (v.type == tValue) {
-        return evalValueAttr(*v.value, name, pos);
-        // TODO: Set v to v.value if it's in WHNF, for efficiency
+        Attr * result = evalValueAttr(*v.value.value, name, pos != noPos ? pos : *v.value.pos);
+        if (v.value.value->type != tLazyBinOp) {
+            v = *v.value.value;
+        }
+        return result;
     } else {
         return nullptr;
     }

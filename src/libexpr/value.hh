@@ -160,7 +160,10 @@ struct Value
         } primOpApp;
         ExternalValueBase * external;
         NixFloat fpoint;
-        Value * value;
+        struct {
+            Value * value;
+            const Pos * pos;
+        } value;
     };
 
     bool isList() const
